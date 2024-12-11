@@ -2,7 +2,7 @@
 
 This script is designed to help people wrangle large music collections. It can be used to count tracks, calucalte total duration of a music library, calculate file size, point out missing metadata, normalize the metadata capitalization scheme across the collection, identify redundant tracks, and much more. 
 
-#USAGE
+# USAGE
 
 USAGE: music_stats.py [-h] [--verbose] [--list-unknown-artist]
                       [--list-unknown-album-artist] [--list-unknown-album]
@@ -99,4 +99,4 @@ options:
                         for non-windows users.
 
                         
-#EXAMPLE OUTPUT
+# EXAMPLE OUTPUT
