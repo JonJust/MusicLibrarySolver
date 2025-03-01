@@ -860,19 +860,10 @@ def process_directory(directory, verbose=False, list_unknown_artist=False, list_
     total_duration = 0.0
     total_size = 0
     desktop_ini_removed = 0
-    mp3_count = 0
-    flac_count = 0
-    wav_count = 0
-    aac_count = 0
-    ogg_count = 0
-    m4a_count = 0
-    wma_count = 0
-    aiff_count = 0
-    opus_count = 0
-    alac_count = 0
     various_file_count = 0
 
-    # Dictionary to store unsupported extensions and their counts
+    # Dictionary to store extensions and their counts
+    supported_extensions = {}
     unsupported_extensions = {}
 
     missing_artist = []
@@ -937,27 +928,8 @@ def process_directory(directory, verbose=False, list_unknown_artist=False, list_
                 # new music file if the extension is valid
                 total_music_files += 1
 
-                # Assess and increment the corresponding count
-                if ext == 'mp3':
-                    mp3_count += 1
-                elif ext == 'flac':
-                    flac_count += 1
-                elif ext == 'wav':
-                    wav_count += 1
-                elif ext == 'aac':
-                    aac_count += 1
-                elif ext == 'ogg':
-                    ogg_count += 1
-                elif ext == 'm4a':
-                    m4a_count += 1
-                elif ext == 'wma':
-                    wma_count += 1
-                elif ext == 'aiff':
-                    aiff_count += 1
-                elif ext == 'opus':
-                    opus_count += 1
-                elif ext == 'alac':
-                    alac_count += 1
+                # Increment file count and add to dictionary
+                supported_extensions[ext] = supported_extensions.get(ext, 0) + 1
 
                 # Initialize track data
                 artist, album_artist, album = get_metadata(file_path)
@@ -1093,35 +1065,20 @@ def process_directory(directory, verbose=False, list_unknown_artist=False, list_
     formatted_time = format_elapsed_time(elapsed_time)
     print(f"{total_files} Files parsed in: {formatted_time} (h:m:s)")
 
-    if mp3_count > 0:
-        print(f"Total .MP3 Files: {mp3_count}")
-    if flac_count > 0:
-        print(f"Total .FLAC Files: {flac_count}")
-    if wav_count > 0:
-        print(f"Total .WAV Files: {wav_count}")
-    if aac_count > 0:
-        print(f"Total .AAC Files: {aac_count}")
-    if ogg_count > 0:
-        print(f"Total .OGG Files: {ogg_count}")
-    if m4a_count > 0:
-        print(f"Total .M4A Files: {m4a_count}")
-    if wma_count > 0:
-        print(f"Total .WMA Files: {wma_count}")
-    if aiff_count > 0:
-        print(f"Total .AIFF Files: {aiff_count}")
-    if opus_count > 0:
-        print(f"Total .Opus Files: {opus_count}")
-    if alac_count > 0:
-        print(f"Total .ALAC Files: {alac_count}")
+    if total_music_files > 0:
+        print("\nTotal Audio File Count:")
+        for ext, count in supported_extensions.items():
+            print(f"{ext}: {count}")
+
     if various_file_count > 0:
-        print("\nUnknown/Non Audio Extensions Summary:")
+        print("\nTotal Non-Audio File Count:")
         for ext, count in unsupported_extensions.items():
             print(f"{ext}: {count}")
 
     total_size_gb = total_size / (1000**3)  # Decimal GB
     total_size_gib = total_size / (1024**3)  # Binary GiB
     total_duration_hms = f"{int(total_duration // 3600)}:{int((total_duration % 3600) // 60)}:{int(total_duration % 60)}"
-    print(f"Total number of files: {total_files}")
+    print(f"\nTotal number of files: {total_files}")
     print(f"Total number of music files: {total_music_files}")
     print(f"Total duration of supported audio files: {total_duration_hms}")
     print(f"Total size of supported audio files: {total_size_gb:.2f} GB / {total_size_gib:.2f} GiB")
