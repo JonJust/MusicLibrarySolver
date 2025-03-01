@@ -86,7 +86,7 @@ def get_metadata(file_path):
     Extract metadata (artist, album artist, album) from a media file.
 
     :param file_path: Path to the media file.
-    :return: Tuple of (artist, album_artist, album), each can be None.
+    :return: Tuple of (artist, album_artist, album, corrupt), each can be None.
     """
     try:
         audio_file = File(file_path, easy=True)
@@ -97,11 +97,14 @@ def get_metadata(file_path):
             return (
                 str(artist) if artist is not None else None,
                 str(album_artist) if album_artist is not None else None,
-                str(album) if album is not None else None
+                str(album) if album is not None else None,
+                False
             )
     except Exception as e:
-        print(f"Error reading metadata for {file_path}: {e}", file=sys.stderr)
-    return None, None, None
+        #print(f"Error reading metadata for {file_path}: {e}", file=sys.stderr)
+        return None, None, None, True
+
+    return None, None, None, False
 
 
 def is_roman_numeral(word):
@@ -612,13 +615,16 @@ def prompt_fix_metadata(missing_folders, metadata_type, current_working_dir, sca
             full_path = os.path.join(folder, file_path)
             if os.path.isfile(full_path) and not file_path.startswith('.'):
                 # Check if the specific metadata is missing
-                artist, album_artist, album = get_metadata(full_path)
-                if metadata_type == 'album_artist' and not album_artist:
-                    affected_files.append(full_path)
-                elif metadata_type == 'album' and not album:
-                    affected_files.append(full_path)
-                elif metadata_type == 'artist' and not artist:
-                    affected_files.append(full_path)
+                artist, album_artist, album, corrupt = get_metadata(full_path)
+                if corrupt:
+                    print(f"Error: file '{file_path}' is corrupt!")
+                else:
+                    if metadata_type == 'album_artist' and not album_artist:
+                        affected_files.append(full_path)
+                    elif metadata_type == 'album' and not album:
+                        affected_files.append(full_path)
+                    elif metadata_type == 'artist' and not artist:
+                        affected_files.append(full_path)
 
         if not affected_files:
             print("No affected files found.")
@@ -720,7 +726,36 @@ class Album:
     trackcount: int = 1
     redundant: List['Album'] = field(default_factory=list)
 
-def insert_album(album_tree, album_name, artist, folder_path, album_artist):
+def extract_all_albums(album_tree):
+    """
+    Extracts all albums from an album tree, including redundant albums.
+    """
+    album_list = []
+    for album in album_tree.values():
+        album_list.append(album)
+        album_list.extend(album.redundant)  # Add redundant albums separately
+    return album_list
+
+
+def merge_album_trees(album_trees):
+    """
+    Merges multiple album trees into a single album tree by flattening them into a list first,
+    then inserting them one by one using insert_album.
+    """
+    merged_tree = {}
+    all_albums = []
+
+    # Flatten all trees into a list of albums
+    for album_tree in album_trees:
+        all_albums.extend(extract_all_albums(album_tree))
+
+    # Insert all extracted albums into the merged tree
+    for album in all_albums:
+        insert_album(merged_tree, album.album_name, album.artist, album.path, album.album_artist, album.trackcount)
+
+    return merged_tree
+
+def insert_album(album_tree, album_name, artist, folder_path, album_artist, track_count=1):
     """
     Insert an album into the album tree sorted by album_artist.
 
@@ -729,6 +764,7 @@ def insert_album(album_tree, album_name, artist, folder_path, album_artist):
     :param artist: Primary artist of the album.
     :param folder_path: Directory path of the album.
     :param album_artist: Album artist of the album.
+    :param track_count: track count of album to be inserted
     :return: Tuple (is_new_album: bool, is_redundant: bool)
     """
     # Ensure album_name and album_artist are strings
@@ -743,7 +779,8 @@ def insert_album(album_tree, album_name, artist, folder_path, album_artist):
         album_tree[album_key] = Album(
             album_name=album_name,
             artist=artist,
-            album_artist=album_artist,  # Set album_artist
+            album_artist=album_artist,
+            trackcount=track_count,
             path=folder_path
         )
         return True, False  # is_new_album, is_redundant
@@ -751,24 +788,45 @@ def insert_album(album_tree, album_name, artist, folder_path, album_artist):
         existing_album = album_tree[album_key]
         if existing_album.album_artist.lower() == album_artist_key and existing_album.path == folder_path:
             # Exact match, increment track count
-            existing_album.trackcount += 1
+            existing_album.trackcount += track_count
             return False, False
         elif existing_album.album_artist.lower() == album_artist_key and existing_album.path != folder_path:
             # Same album and album_artist but different path, check redundancy
             duplicate = False
             for redundant_album in existing_album.redundant:
                 if redundant_album.path == folder_path:
-                    redundant_album.trackcount += 1
+                    redundant_album.trackcount += track_count
                     duplicate = True
+
+                    # Check if this redundant album has now grown larger than the base album
+                    if redundant_album.trackcount > existing_album.trackcount:
+                        # Swap base album with the larger redundant album
+                        existing_album.album_name, redundant_album.album_name = redundant_album.album_name, existing_album.album_name
+                        existing_album.artist, redundant_album.artist = redundant_album.artist, existing_album.artist
+                        existing_album.album_artist, redundant_album.album_artist = redundant_album.album_artist, existing_album.album_artist
+                        existing_album.path, redundant_album.path = redundant_album.path, existing_album.path
+                        existing_album.trackcount, redundant_album.trackcount = redundant_album.trackcount, existing_album.trackcount
                     break
+
             if not duplicate:
                 new_redundant = Album(
                     album_name=album_name,
                     artist=artist,
-                    album_artist=album_artist,  # Set album_artist
+                    album_artist=album_artist,
+                    trackcount=track_count,
                     path=folder_path
                 )
                 existing_album.redundant.append(new_redundant)
+
+                # Check if the new redundant album has more tracks than the base
+                if new_redundant.trackcount > existing_album.trackcount:
+                    # Swap the base album with the redundant album
+                    existing_album.album_name, new_redundant.album_name = new_redundant.album_name, existing_album.album_name
+                    existing_album.artist, new_redundant.artist = new_redundant.artist, existing_album.artist
+                    existing_album.album_artist, new_redundant.album_artist = new_redundant.album_artist, existing_album.album_artist
+                    existing_album.path, new_redundant.path = new_redundant.path, existing_album.path
+                    existing_album.trackcount, new_redundant.trackcount = new_redundant.trackcount, existing_album.trackcount
+
                 return False, True
             else:
                 return False, False
@@ -779,13 +837,14 @@ def insert_album(album_tree, album_name, artist, folder_path, album_artist):
                 album_tree[unique_key] = Album(
                     album_name=album_name,
                     artist=artist,
-                    album_artist=album_artist,  # Set album_artist
+                    album_artist=album_artist,
+                    trackcount=track_count,
                     path=folder_path
                 )
                 return True, False
             else:
                 # Exact match in unique key
-                album_tree[unique_key].trackcount += 1
+                album_tree[unique_key].trackcount += track_count
                 return False, False
 
 
@@ -798,14 +857,15 @@ def print_album_statistics(album_tree, list_redundant_albums):
     total_albums = 0
     redundant_albums = 0
     redundant_trackcount = 0
-    redundant_total_size = 0
-    redundant_total_duration = 0.0
+    #redundant_total_size = 0
+    #redundant_total_duration = 0.0
 
     for album in album_tree.values():
         total_albums += 1
         for redundant in album.redundant:
             redundant_albums += 1
             redundant_trackcount += redundant.trackcount
+            #print(f"trackcount {redundant.trackcount}, name {redundant.album_name}, path {redundant.path}")
             # If you have track durations and sizes per album, aggregate them here
             # For simplicity, these are left as placeholders
             # redundant_total_size += calculate_size(redundant)
@@ -825,264 +885,275 @@ def format_elapsed_time(elapsed_seconds):
     seconds = int(elapsed_seconds % 60)
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
-def process_directory(directory, verbose=False, list_unknown_artist=False, list_unknown_album_artist=False,
-                     list_unknown_album=False, normalize_capitalization_flag=False, list_redundant_tracks=False,
-                     list_redundant_album=False, list_all_albums=False,
-                     fix_missing_album_artist=False, fix_missing_album=False, fix_missing_artist=False,
-                     remove_desktop_ini_files=False):
-    """
-    Process the specified directory to count files, calculate durations and sizes,
-    log missing metadata, normalize metadata, identify redundant tracks, fix missing metadata,
-    and remove 'desktop.ini' files.
 
-    :param directory: Directory to scan.
-    :param verbose: If True, print each file as it is being processed.
-    :param list_unknown_artist: If True, list files with missing artist metadata.
-    :param list_unknown_album_artist: If True, list files with missing album artist metadata.
-    :param list_unknown_album: If True, list files with missing album metadata.
-    :param normalize_capitalization_flag: If True, normalize metadata capitalization.
-    :param list_redundant_tracks: If True, list duplicate tracks.
-    :param list_redundant_album: If True, list redundant albums and save to a text file.
-    :param list_all_albums: If True, list all albums sorted alphabetically by artist and save to a text file.
-    :param fix_missing_album_artist: If True, interactively fix missing album artist metadata by folder.
-    :param fix_missing_album: If True, interactively fix missing album metadata by folder.
-    :param fix_missing_artist: If True, interactively fix missing artist metadata by folder.
-    :param remove_desktop_ini_files: If True, remove all 'desktop.ini' files and report the count.
-    """
+@dataclass
+class ProcessingOptions:
+    verbose: bool = False
+    list_unknown_artist: bool = False
+    list_unknown_album_artist: bool = False
+    list_unknown_album: bool = False
+    normalize_capitalization_flag: bool = False
+    list_redundant_tracks: bool = False
+    list_redundant_album: bool = False
+    list_all_albums: bool = False
+    fix_missing_album_artist: bool = False
+    fix_missing_album: bool = False
+    fix_missing_artist: bool = False
+    remove_desktop_ini_files: bool = False
 
-    # Initialize timer
+import os
+import sys
+import time
+import multiprocessing
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+from dataclasses import dataclass, field
+from collections import defaultdict
+
+@dataclass
+class ProcessingBuffers:
+    total_files: int = 0
+    total_music_files: int = 0
+    total_media_files: int = 0
+    total_duration: float = 0.0
+    total_size: int = 0
+    desktop_ini_removed: int = 0
+    various_file_count: int = 0
+    supported_extensions: dict = field(default_factory=lambda: defaultdict(int))
+    unsupported_extensions: dict = field(default_factory=lambda: defaultdict(int))
+    missing_artist: list = field(default_factory=list)
+    missing_album_artist: list = field(default_factory=list)
+    missing_album: list = field(default_factory=list)
+    normalized_updates: list = field(default_factory=list)
+    folders_missing_artist: set = field(default_factory=set)
+    folders_missing_album_artist: set = field(default_factory=set)
+    folders_missing_album: set = field(default_factory=set)
+    all_tracks: list = field(default_factory=list)
+    album_tree: dict = field(default_factory=dict)
+    total_albums: int = 0
+    redundant_albums: int = 0
+    corrupt_file_count: int = 0
+    corrupt_files: list = field(default_factory=list)
+
+
+def process_file_multithreaded(file_path, options:ProcessingOptions, media_extensions, buffers):
+    """
+    Processes a single file and updates the given buffers.
+    """
+    file_name = os.path.basename(file_path)
+    ext = file_name.split('.')[-1].lower()
+
+    if options.verbose:
+        print(f"Processing file path {file_path}")
+
+    buffers.total_files += 1
+
+    if options.remove_desktop_ini_files and file_name.lower() == 'desktop.ini':
+        try:
+            if options.verbose:
+                print(f"Removed: {file_path}")
+            os.remove(file_path)
+            buffers.desktop_ini_removed += 1
+        except Exception as e:
+            print(f"Error removing {file_path}: {e}", file=sys.stderr)
+        return
+
+    if ext in media_extensions:
+        # new music file if the extension is valid
+        buffers.total_music_files += 1
+
+        # Increment file count and add to dictionary
+        buffers.supported_extensions[ext] += 1
+
+        # Initialize track data
+
+        # Initialize track data
+        artist, album_artist, album, corrupt = get_metadata(file_path)
+        if corrupt:  # Don't try to faff with corrupt files
+            buffers.corrupt_file_count += 1
+            buffers.corrupt_files.append(file_path)
+            return
+
+        duration = get_duration(file_path) or 0
+        file_size = get_file_size(file_path) or 0
+        crc = compute_crc32(file_path)
+
+        buffers.total_media_files += 1
+        if duration is not None:
+            buffers.total_duration += duration
+        else:
+            if options.verbose:
+                print(f"Warning: Could not retrieve duration for {file_path}")
+
+        buffers.total_size += file_size
+
+        folder_path = os.path.dirname(file_path)
+        if options.list_unknown_artist and not artist:
+            buffers.missing_artist.append(file_path)
+            buffers.folders_missing_artist.add(folder_path)
+        if options.list_unknown_album_artist and not album_artist:
+            buffers.missing_album_artist.append(file_path)
+            buffers.folders_missing_album_artist.add(folder_path)
+        if options.list_unknown_album and not album:
+            buffers.missing_album.append(file_path)
+            buffers.folders_missing_album.add(folder_path)
+
+        # If we are fixing missing metadata, add the path to the respective list
+        if options.fix_missing_artist and not artist:
+            buffers.folders_missing_artist.add(folder_path)
+        if options.fix_missing_album_artist and not album_artist:
+            buffers.folders_missing_album_artist.add(folder_path)
+        if options.fix_missing_album and not album:
+            buffers.folders_missing_album.add(folder_path)
+
+        # Normalize metadata capitalization if requested
+        exceptions = {"a", "an", "and", "as", "at", "but", "by",
+                      "for", "in", "nor", "of", "on", "or", "the", "up"}
+        if options.normalize_capitalization_flag and (artist or album_artist or album):
+            normalize_and_save_metadata(file_path, artist, album_artist, album,
+                                        exceptions, buffers.normalized_updates)
+
+        # Insert into the album tree
+        if album and artist:
+            is_new_album, is_redundant = insert_album(buffers.album_tree, album, artist, folder_path, album_artist)
+            if is_new_album:
+                buffers.total_albums += 1
+            if is_redundant:
+                buffers.redundant_albums += 1
+
+        track = Track(
+            file_path=file_path,
+            artist=artist,
+            album_artist=album_artist,
+            album=album,
+            file_size=file_size,
+            crc=crc
+        )
+        buffers.all_tracks.append(track)
+    else:
+        buffers.various_file_count += 1
+        buffers.unsupported_extensions[ext] += 1
+
+
+def process_chunk_multithreaded(files_chunk, options, media_extensions, progress_queue):
+    """
+    Processes a chunk of files and returns a ProcessingBuffers object.
+    """
+    buffers = ProcessingBuffers()
+    for i, file_path in enumerate(files_chunk):
+        process_file_multithreaded(file_path, options, media_extensions, buffers)
+        if i % 5 == 0:  # Update tqdm every 5 files
+            progress_queue.put(5)
+    return buffers
+
+def process_directory_multithreaded(directory, options: ProcessingOptions):
+    """
+    Process the specified directory with multithreading.
+    """
+    thread_count = min(32, multiprocessing.cpu_count() * 2)
+    if options.verbose:
+        print(f"Using {thread_count} Threads")
     start_time = time.perf_counter()
 
-    # Initialize counters
-    total_files = 0
-    total_music_files = 0
-    total_media_files = 0
-    total_duration = 0.0
-    total_size = 0
-    desktop_ini_removed = 0
-    various_file_count = 0
+    media_extensions = {'mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a', 'wma', 'aiff', 'opus', 'alac'}
 
-    # Dictionary to store extensions and their counts
-    supported_extensions = {}
-    unsupported_extensions = {}
+    all_files = [os.path.join(root, file) for root, _, files in os.walk(directory) for file in files if
+                 not file.startswith('.')]
+    chunk_size = max(1, len(all_files) // thread_count)
+    file_chunks = [all_files[i:i + chunk_size] for i in range(0, len(all_files), chunk_size)]
 
-    missing_artist = []
-    missing_album_artist = []
-    missing_album = []
-    normalized_updates = []
+    results = []
 
-    media_extensions = {
-        'mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a',
-        'wma', 'aiff', 'opus', 'alac'
-    }
-    exceptions = {"a", "an", "and", "as", "at", "but", "by",
-                 "for", "in", "nor", "of", "on", "or", "the", "up"}
+    progress_queue = multiprocessing.Queue()
 
-    all_tracks = []
+    def tqdm_updater(total_files):
+        # Don't display tqdm bar is using verbose mode.
+        # (Constant prints break the bar)
+        if options.verbose is False:
+            with tqdm(total=total_files, unit="file") as status_bar:
+                while True:
+                    progress = progress_queue.get()
+                    if progress is None:
+                        break
+                    status_bar.update(progress)
 
-    # Initialize the album tree
-    album_tree = {}
-    total_albums = 0
-    redundant_albums = 0
+    updater_thread = multiprocessing.Process(target=tqdm_updater, args=(len(all_files),))
+    updater_thread.start()
 
-    # Collect all non-hidden files
-    all_files = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            # Ignore hidden files
-            if not file.startswith('.'):
-                all_files.append(os.path.join(root, file))
+    with ThreadPoolExecutor(max_workers=thread_count) as executor:
+        futures = {executor.submit(process_chunk_multithreaded, chunk, options, media_extensions, progress_queue): chunk
+                   for chunk in file_chunks}
+        for future in as_completed(futures):
+            results.append(future.result())
 
-    # Get the basename of the scanned directory for log naming
-    scanned_dir_basename = os.path.basename(os.path.normpath(directory))
-    # Get the current working directory for log storage
-    current_working_dir = os.getcwd()
+    progress_queue.put(None)  # Signal tqdm to stop
+    updater_thread.join()
 
-    # Initialize sets for folders with missing metadata
-    folders_missing_artist = set()
-    folders_missing_album_artist = set()
-    folders_missing_album = set()
+    # Aggregate results
+    final_buffers = ProcessingBuffers()
+    album_buffers = []
+    for buffer in results:
+        final_buffers.total_files += buffer.total_files
+        final_buffers.total_music_files += buffer.total_music_files
+        final_buffers.total_media_files += buffer.total_media_files
+        final_buffers.total_duration += buffer.total_duration
+        final_buffers.total_size += buffer.total_size
+        final_buffers.desktop_ini_removed += buffer.desktop_ini_removed
+        final_buffers.various_file_count += buffer.various_file_count
+        final_buffers.corrupt_file_count += buffer.corrupt_file_count
 
-    with tqdm(total=len(all_files), unit="file") as status_bar:
-        for file_path in all_files:
-            total_files += 1
-            file_name = os.path.basename(file_path)
+        for ext, count in buffer.supported_extensions.items():
+            final_buffers.supported_extensions[ext] += count
+        for ext, count in buffer.unsupported_extensions.items():
+            final_buffers.unsupported_extensions[ext] += count
 
-            ext = file_name.split('.')[-1].lower()
+        final_buffers.missing_artist.extend(buffer.missing_artist)
+        final_buffers.missing_album_artist.extend(buffer.missing_album_artist)
+        final_buffers.missing_album.extend(buffer.missing_album)
+        final_buffers.folders_missing_artist.update(buffer.folders_missing_artist)
+        final_buffers.folders_missing_album_artist.update(buffer.folders_missing_album_artist)
+        final_buffers.folders_missing_album.update(buffer.folders_missing_album)
+        final_buffers.all_tracks.extend(buffer.all_tracks)
+        final_buffers.corrupt_files.extend(buffer.corrupt_files)
 
-            # Handle 'desktop.ini' removal if flag is set
-            if remove_desktop_ini_files and file_name.lower() == 'desktop.ini':
-                try:
-                    os.remove(file_path)
-                    desktop_ini_removed += 1
-                    if verbose:
-                        print(f"Removed: {file_path}")
-                except Exception as e:
-                    print(f"Error removing {file_path}: {e}", file=sys.stderr)
-                # Update the status bar and continue to next file
-                update_status_bar(status_bar, file_name, total_media_files, total_size, total_duration)
-                continue  # Skip further processing for this file
+        # Parse all albums into the final album buffer
+        album_buffers.append(buffer.album_tree)
 
-            # Ensure tracks are actually audio files before parsing them
-            if ext in media_extensions:
-                # new music file if the extension is valid
-                total_music_files += 1
-
-                # Increment file count and add to dictionary
-                supported_extensions[ext] = supported_extensions.get(ext, 0) + 1
-
-                # Initialize track data
-                artist, album_artist, album = get_metadata(file_path)
-                file_size = 0
-                crc = None
-
-                total_media_files += 1
-
-                # Get duration and size
-                duration = get_duration(file_path)
-                if duration is not None:
-                    total_duration += duration
-                else:
-                    if verbose:
-                        print(f"Warning: Could not retrieve duration for {file_path}")
-
-                file_size = get_file_size(file_path)
-                total_size += file_size
-
-                # Compute CRC
-                crc = compute_crc32(file_path)
-
-                # Check for missing metadata and add folder paths to respective sets
-                folder_path = os.path.dirname(file_path)
-                if list_unknown_artist and not artist:
-                    missing_artist.append(file_path)
-                if list_unknown_album_artist and not album_artist:
-                    missing_album_artist.append(file_path)
-                if list_unknown_album and not album:
-                    missing_album.append(file_path)
-
-                # If we are fixing missing metadata, add the path to the respective list
-                if fix_missing_artist and not artist:
-                    folders_missing_artist.add(folder_path)
-                if fix_missing_album_artist and not album_artist:
-                    folders_missing_album_artist.add(folder_path)
-                if fix_missing_album and not album:
-                    folders_missing_album.add(folder_path)
-
-                # Normalize metadata capitalization if requested
-                if normalize_capitalization_flag and (artist or album_artist or album):
-                    normalize_and_save_metadata(file_path, artist, album_artist, album,
-                                                exceptions, normalized_updates)
-
-                # Insert into the album tree
-                if album and artist:
-                    is_new_album, is_redundant = insert_album(album_tree, album, artist, folder_path, album_artist)
-                    if is_new_album:
-                        total_albums += 1
-                    if is_redundant:
-                        redundant_albums += 1
-
-                # Create Track instance and add to list
-                track = Track(
-                    file_path=file_path,
-                    artist=artist,
-                    album_artist=album_artist,
-                    album=album,
-                    file_size=file_size,
-                    crc=crc
-                )
-                all_tracks.append(track)
-
-            else:
-                various_file_count += 1
-                # Increment the count for this unsupported extension
-                unsupported_extensions[ext] = unsupported_extensions.get(ext, 0) + 1
-
-            # Update the status bar
-            update_status_bar(status_bar, file_name, total_media_files, total_size, total_duration)
-
-    # Build CRC map
-    crc_map, crc_collision_count = build_crc_map(all_tracks)
-
-    # Log missing metadata
-    if list_unknown_artist:
-        log_missing_metadata(current_working_dir, missing_artist, "unknown_artist", scanned_dir_basename)
-    if list_unknown_album_artist:
-        log_missing_metadata(current_working_dir, missing_album_artist, "unknown_album_artist", scanned_dir_basename)
-    if list_unknown_album:
-        log_missing_metadata(current_working_dir, missing_album, "unknown_album", scanned_dir_basename)
-    if list_redundant_album:
-        log_redundant_albums(album_tree, scanned_dir_basename, current_working_dir)
-    if list_all_albums:
-        log_all_albums(album_tree, scanned_dir_basename, current_working_dir, directory)
-
-    # Log normalized metadata updates
-    if normalize_capitalization_flag:
-        log_normalized_metadata(current_working_dir, normalized_updates, scanned_dir_basename)
-
-    # Handle redundant tracks
-    if list_redundant_tracks:
-        redundant_tracks, duplicates_count = find_redundant_tracks(crc_map)
-        log_redundant_tracks(current_working_dir, redundant_tracks, scanned_dir_basename)
-        print(f"Total redundant track pairs found: {duplicates_count}")
-        print(f"Total CRC collisions detected: {crc_collision_count}")
-
-    # Handle interactive metadata fixing
-    if fix_missing_album_artist or fix_missing_album or fix_missing_artist:
-        if fix_missing_album_artist and folders_missing_album_artist:
-            prompt_fix_metadata(
-                missing_folders=list(folders_missing_album_artist),
-                metadata_type='album_artist',
-                current_working_dir=current_working_dir,
-                scanned_dir_basename=scanned_dir_basename,
-                exceptions=exceptions
-            )
-        if fix_missing_album and folders_missing_album:
-            prompt_fix_metadata(
-                missing_folders=list(folders_missing_album),
-                metadata_type='album',
-                current_working_dir=current_working_dir,
-                scanned_dir_basename=scanned_dir_basename,
-                exceptions=exceptions
-            )
-        if fix_missing_artist and folders_missing_artist:
-            prompt_fix_metadata(
-                missing_folders=list(folders_missing_artist),
-                metadata_type='artist',
-                current_working_dir=current_working_dir,
-                scanned_dir_basename=scanned_dir_basename,
-                exceptions=exceptions
-            )
-
-    # Handle 'desktop.ini' removal summary
-    if remove_desktop_ini_files:
-        print(f"\nTotal 'desktop.ini' files removed: {desktop_ini_removed}")
+    final_buffers.album_tree = merge_album_trees(album_buffers)
 
     # Print album statistics and final summary
     print("\n" + "=" * 80)
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
     formatted_time = format_elapsed_time(elapsed_time)
-    print(f"{total_files} Files parsed in: {formatted_time} (h:m:s)")
+    print(f"{final_buffers.total_files} Files parsed in: {formatted_time} (h:m:s)")
 
-    if total_music_files > 0:
+    # Print count of audio files
+    if final_buffers.total_music_files > 0:
         print("\nTotal Audio File Count:")
-        for ext, count in supported_extensions.items():
+        for ext, count in final_buffers.supported_extensions.items():
             print(f"{ext}: {count}")
 
-    if various_file_count > 0:
+    # Print count of non audio files
+    if final_buffers.various_file_count > 0:
         print("\nTotal Non-Audio File Count:")
-        for ext, count in unsupported_extensions.items():
+        for ext, count in final_buffers.unsupported_extensions.items():
             print(f"{ext}: {count}")
 
-    total_size_gb = total_size / (1000**3)  # Decimal GB
-    total_size_gib = total_size / (1024**3)  # Binary GiB
-    total_duration_hms = f"{int(total_duration // 3600)}:{int((total_duration % 3600) // 60)}:{int(total_duration % 60)}"
-    print(f"\nTotal number of files: {total_files}")
-    print(f"Total number of music files: {total_music_files}")
+    # Print corrupt files
+    if final_buffers.corrupt_file_count > 0:
+        print(f"\nCorrupt files:{final_buffers.corrupt_file_count}")
+        for corrupt_file in final_buffers.corrupt_files:
+            print(f"    -{corrupt_file}")
+
+    total_size_gb = final_buffers.total_size / (1000 ** 3)  # Decimal GB
+    total_size_gib = final_buffers.total_size / (1024 ** 3)  # Binary GiB
+    total_duration_hms = f"{int(final_buffers.total_duration // 3600)}:{int((final_buffers.total_duration % 3600) // 60)}:{int(final_buffers.total_duration % 60)}"
+    print(f"\nTotal number of files: {final_buffers.total_files}")
+    print(f"Total number of music files: {final_buffers.total_music_files}")
     print(f"Total duration of supported audio files: {total_duration_hms}")
     print(f"Total size of supported audio files: {total_size_gb:.2f} GB / {total_size_gib:.2f} GiB")
-    print_album_statistics(album_tree, list_redundant_album)
+    print_album_statistics(final_buffers.album_tree, options.list_redundant_album)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1094,7 +1165,7 @@ def main():
     )
     parser.add_argument("directory", help="Directory to scan")
     parser.add_argument("--verbose", action="store_true",
-                        help="Print each file as it is being processed")
+                        help="Print each file as it is being processed (slow)")
     parser.add_argument("--list-unknown-artist", action="store_true",
                         help="List files with missing artist metadata")
     parser.add_argument("--list-unknown-album-artist", action="store_true",
@@ -1125,8 +1196,7 @@ def main():
         print(f"The specified directory does not exist or is not a directory: {args.directory}", file=sys.stderr)
         sys.exit(1)
 
-    process_directory(
-        directory=args.directory,
+    options=ProcessingOptions(
         verbose=args.verbose,
         list_unknown_artist=args.list_unknown_artist,
         list_unknown_album_artist=args.list_unknown_album_artist,
@@ -1139,6 +1209,11 @@ def main():
         list_redundant_album=args.list_redundant_album,
         list_all_albums=args.list_all_albums,
         remove_desktop_ini_files=args.remove_desktop_ini_files
+    )
+
+    process_directory_multithreaded(
+        directory=args.directory,
+        options=options
     )
 
 if __name__ == "__main__":
