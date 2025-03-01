@@ -153,6 +153,7 @@ def normalize_capitalization(text, exceptions):
             # Reconstruct the bracketed part
             normalized_part = f"{opening}{normalized_inner}{closing}"
             normalized_parts.append(normalized_part)
+
         else:
             # Normalize the non-bracketed part
             normalized_non_bracket = normalize_capitalization_inner(part, exceptions)
@@ -869,6 +870,10 @@ def process_directory(directory, verbose=False, list_unknown_artist=False, list_
     aiff_count = 0
     opus_count = 0
     alac_count = 0
+    various_file_count = 0
+
+    # Dictionary to store unsupported extensions and their counts
+    unsupported_extensions = {}
 
     missing_artist = []
     missing_album_artist = []
@@ -929,7 +934,6 @@ def process_directory(directory, verbose=False, list_unknown_artist=False, list_
 
             # Ensure tracks are actually audio files before parsing them
             if ext in media_extensions:
-
                 # new music file if the extension is valid
                 total_music_files += 1
 
@@ -954,8 +958,6 @@ def process_directory(directory, verbose=False, list_unknown_artist=False, list_
                     opus_count += 1
                 elif ext == 'alac':
                     alac_count += 1
-                else:
-                    print(f"Unsupported media extension: {ext}") # Something went terribly wrong if we get here
 
                 # Initialize track data
                 artist, album_artist, album = get_metadata(file_path)
@@ -1018,6 +1020,11 @@ def process_directory(directory, verbose=False, list_unknown_artist=False, list_
                     crc=crc
                 )
                 all_tracks.append(track)
+
+            else:
+                various_file_count += 1
+                # Increment the count for this unsupported extension
+                unsupported_extensions[ext] = unsupported_extensions.get(ext, 0) + 1
 
             # Update the status bar
             update_status_bar(status_bar, file_name, total_media_files, total_size, total_duration)
@@ -1106,6 +1113,10 @@ def process_directory(directory, verbose=False, list_unknown_artist=False, list_
         print(f"Total .Opus Files: {opus_count}")
     if alac_count > 0:
         print(f"Total .ALAC Files: {alac_count}")
+    if various_file_count > 0:
+        print("\nUnknown/Non Audio Extensions Summary:")
+        for ext, count in unsupported_extensions.items():
+            print(f"{ext}: {count}")
 
     total_size_gb = total_size / (1000**3)  # Decimal GB
     total_size_gib = total_size / (1024**3)  # Binary GiB
