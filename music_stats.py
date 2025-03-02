@@ -1323,7 +1323,8 @@ def main():
     parser.add_argument("--list-redundant-tracks", action="store_true",
                         help="List all duplicate tracks in the directory. (Based on contents of files)")
     parser.add_argument("--list-redundant-albums", action="store_true",
-                        help="Finds and lists potential redundant albums. (Based on file paths)")
+                        help="Finds and lists potential redundant albums and albums spanning multiple "
+                             "files missing disc tags. (Based on file paths)")
     parser.add_argument("--list-all-albums", action="store_true",
                         help="Lists all albums in directory based on metadata tags.")
     parser.add_argument("--remove-desktop-ini-files", action="store_true",
