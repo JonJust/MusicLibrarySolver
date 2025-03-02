@@ -335,22 +335,6 @@ def log_redundant_tracks(current_working_dir, redundant_tracks, scanned_dir_base
 
         print(f"Redundant tracks logged to {log_filepath}")
 
-        # Print to console in a readable format
-        for track1, track2 in redundant_tracks:
-            print(f"Duplicate Pair:")
-            print(f"1. {track1.file_path}")
-            print(f"   Artist: {track1.artist}")
-            print(f"   Album Artist: {track1.album_artist}")
-            print(f"   Album: {track1.album}")
-            print(f"   File Size: {track1.file_size} bytes\n")
-
-            print(f"2. {track2.file_path}")
-            print(f"   Artist: {track2.artist}")
-            print(f"   Album Artist: {track2.album_artist}")
-            print(f"   Album: {track2.album}")
-            print(f"   File Size: {track2.file_size} bytes")
-            print("-" * 80)
-
     except Exception as e:
         print(f"Error writing redundant tracks log file {log_filepath}: {e}", file=sys.stderr)
 
@@ -1046,7 +1030,7 @@ def process_chunk_multithreaded(files_chunk, options, media_extensions, progress
             progress_queue.put(5)
     return buffers
 
-def process_directory_multithreaded(directory, options: ProcessingOptions):
+def process_directory(directory, options: ProcessingOptions):
     """
     Process the specified directory with multithreading.
     """
@@ -1120,6 +1104,65 @@ def process_directory_multithreaded(directory, options: ProcessingOptions):
         album_buffers.append(buffer.album_tree)
 
     final_buffers.album_tree = merge_album_trees(album_buffers)
+    scanned_dir_basename = os.path.basename(os.path.normpath(directory))
+    current_working_dir = os.getcwd()
+
+    # Log missing metadata
+    if options.list_unknown_artist:
+        log_missing_metadata(current_working_dir, final_buffers.missing_artist, "unknown_artist", scanned_dir_basename)
+    if options.list_unknown_album_artist:
+        log_missing_metadata(current_working_dir, final_buffers.missing_album_artist, "unknown_album_artist", scanned_dir_basename)
+    if options.list_unknown_album:
+        log_missing_metadata(current_working_dir, final_buffers.missing_album, "unknown_album", scanned_dir_basename)
+    if options.list_redundant_album:
+        log_redundant_albums(final_buffers.album_tree, scanned_dir_basename, current_working_dir)
+    if options.list_all_albums:
+        log_all_albums(final_buffers.album_tree, scanned_dir_basename, current_working_dir, directory)
+
+    # Log normalized metadata updates
+    if options.normalize_capitalization_flag:
+        log_normalized_metadata(current_working_dir, final_buffers.normalized_updates, scanned_dir_basename)
+
+    # Handle redundant tracks
+    if options.list_redundant_tracks:
+        # Build CRC map
+        crc_map, crc_collision_count = build_crc_map(final_buffers.all_tracks)
+        redundant_tracks, duplicates_count = find_redundant_tracks(crc_map)
+        log_redundant_tracks(current_working_dir, redundant_tracks, scanned_dir_basename)
+        print(f"Total redundant track pairs found: {duplicates_count}")
+        print(f"Total CRC collisions detected: {crc_collision_count}")
+
+    # Handle interactive metadata fixing
+    if options.fix_missing_album_artist or options.fix_missing_album or options.fix_missing_artist:
+        exceptions = {"a", "an", "and", "as", "at", "but", "by",
+                      "for", "in", "nor", "of", "on", "or", "the", "up"}
+
+        if options.fix_missing_album_artist and final_buffers.folders_missing_album_artist:
+            prompt_fix_metadata(
+                missing_folders=list(final_buffers.folders_missing_album_artist),
+                metadata_type='album_artist',
+                current_working_dir=current_working_dir,
+                scanned_dir_basename=scanned_dir_basename,
+                exceptions=exceptions,
+                media_extensions=media_extensions)
+
+        if options.fix_missing_album and final_buffers.folders_missing_album:
+            prompt_fix_metadata(
+                missing_folders=list(final_buffers.folders_missing_album),
+                metadata_type='album',
+                current_working_dir=current_working_dir,
+                scanned_dir_basename=scanned_dir_basename,
+                exceptions=exceptions,
+                media_extensions=media_extensions)
+
+        if options.fix_missing_artist and final_buffers.folders_missing_artist:
+            prompt_fix_metadata(
+                missing_folders=list(final_buffers.folders_missing_artist),
+                metadata_type='artist',
+                current_working_dir=current_working_dir,
+                scanned_dir_basename=scanned_dir_basename,
+                exceptions=exceptions,
+                media_extensions=media_extensions)
 
     # Print album statistics and final summary
     print("\n" + "=" * 80)
@@ -1155,6 +1198,28 @@ def process_directory_multithreaded(directory, options: ProcessingOptions):
     print(f"Total size of supported audio files: {total_size_gb:.2f} GB / {total_size_gib:.2f} GiB")
     print_album_statistics(final_buffers.album_tree, options.list_redundant_album)
 
+class Tee:
+    def __init__(self, filename, mode="w"):
+        self.file = open(filename, mode)
+        self.stdout = sys.stdout  # Save original stdout
+
+    def write(self, message):
+        self.stdout.write(message)  # Print to console
+        self.file.write(message)  # Write to file
+
+    def flush(self):
+        self.stdout.flush()
+        self.file.flush()
+
+    def close(self):
+        self.file.close()
+
+
+def is_valid_filename(filename):
+    """Check if the filename is a valid Linux filename."""
+    invalid_chars = r'<>:"/\\|?*'
+    return not any(char in filename for char in invalid_chars) and filename.strip() != ""
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -1164,8 +1229,11 @@ def main():
         )
     )
     parser.add_argument("directory", help="Directory to scan")
+
     parser.add_argument("--verbose", action="store_true",
                         help="Print each file as it is being processed (slow)")
+    parser.add_argument("--log-output", type=str,
+                        help="Optional log file to save output.")
     parser.add_argument("--list-unknown-artist", action="store_true",
                         help="List files with missing artist metadata")
     parser.add_argument("--list-unknown-album-artist", action="store_true",
@@ -1196,6 +1264,15 @@ def main():
         print(f"The specified directory does not exist or is not a directory: {args.directory}", file=sys.stderr)
         sys.exit(1)
 
+    tee = None
+    if args.log_output:
+        if is_valid_filename(args.log_output):
+            tee = Tee(args.log_output)
+            sys.stdout = tee  # Redirect stdout to tee
+        else:
+            print(f"Error: '{args.log_output}' is not a valid Linux filename.", file=sys.stderr)
+            sys.exit(1)
+
     options=ProcessingOptions(
         verbose=args.verbose,
         list_unknown_artist=args.list_unknown_artist,
@@ -1211,10 +1288,14 @@ def main():
         remove_desktop_ini_files=args.remove_desktop_ini_files
     )
 
-    process_directory_multithreaded(
+    process_directory(
         directory=args.directory,
         options=options
     )
+
+    if tee:
+        sys.stdout = tee.stdout  # Restore original stdout
+        tee.close()
 
 if __name__ == "__main__":
     main()
