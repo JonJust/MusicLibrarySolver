@@ -6,7 +6,7 @@ It also prints out statistics based on the entire music library. (Total files, t
 
 # KEY FEATURES AND USAGE
 
-music_stats.py directory [-h] [--verbose] [--log-output LOG_OUTPUT] [--list-unknown-artist] [--list-unknown-album-artist] [--list-unknown-album] [--normalize-metadata-capitalization] [--list-redundant-tracks] [--list-redundant-albums] [--list-all-albums] [--remove-desktop-ini-files] [--fix-missing-album-artist-by-folder] [--fix-missing-album-by-folder] [--fix-missing-artist-by-folder] [--num-threads NUM_THREADS]
+    music_stats.py directory [-h] [--verbose] [--log-output LOG_OUTPUT] [--list-unknown-artist] [--list-unknown-album-artist] [--list-unknown-album] [--normalize-metadata-capitalization] [--list-redundant-tracks] [--list-redundant-albums] [--list-all-albums] [--remove-desktop-ini-files] [--fix-missing-album-artist-by-folder] [--fix-missing-album-by-folder] [--fix-missing-artist-by-folder] [--num-threads NUM_THREADS]
                       
 positional arguments:
     directory
@@ -92,71 +92,71 @@ positional arguments:
                         
 # EXAMPLE OUTPUT
 
-============================== LIBRARY STATISTICS ==============================
-38 Files parsed in: 00:00:15 (h:m:s)
-
-Total Audio File Count:
-mp3: 22
-m4a: 5
-flac: 1
-
-Total Non-Audio File Count:
-jpeg: 10
-
-Corrupt files:1
-    -Music/EpicAnimeMusic/OnePieceRap_4kids.flac
-
-Total number of files: 38
-Total number of music files: 28
-Total duration of supported audio files: 2:21:21
-Total size of supported audio files: 500.00 MB / 476.84 MiB
-Total number of albums: 3
-Total number of possible redundant albums: 1
-Redundant Album Track Count: 12
-
-ALBUM ARTIST             | ALBUM                                    | ARTIST                    | TRACK COUNT | DISC NUMBER | PATH
-======================================================================================================================================================================================================================
-Epic Album Artist        | Epic Album                               | Epic Artist               | Tracks: 12  | Disc: 1 | /EpicArtist/EpicAlbumDisk1/
-Epic Album Artist        | Epic Album                               | Epic Artist               | Tracks: 10  | Disc: 2 | /EpicArtist/EpicAlbumDisk2/
-Guitar Man and Co.       | Shredding the GUITAR II                  | Guitar Man                | Tracks: 5  | Disc: 0 | /GuitarMan/TheGuitarAlbum/
-============================= NORMALIZED METADATA ==============================
-Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/Shrek_N_Roll.mp3:
-Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/The_Shredshank_Redemption.mp3:
-Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/Shrednado.mp3:
-Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/Lord_of_the_SHRED.mp3:
-Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/Shred_Wars_the_Empire_SHREDS_Back.mp3:
-==================== FILES MISSING METADATA: unknown_artist ====================
-Music/EpicAnimeMusic/OnePieceRap_4kids.flac
-================= FILES MISSING METADATA: unknown_album_artist =================
-Music/EpicAnimeMusic/OnePieceRap_4kids.flac
-==================== FILES MISSING METADATA: unknown_album =====================
-Music/EpicAnimeMusic/OnePieceRap_4kids.flac
-========================== REDUNDANT/MISTAGGED ALBUMS ==========================
-Note: Albums listed here are either redundant or missing disc tags
---------------------------------------------------------------------------------
-Album Name : Epic Album
-Artist     : Epic Album Artist
-Path       : /EpicArtist/EpicAlbumDisk1/
-Track Count: 12
-
-Album Name : Epic Album
-Artist     : Epic Album Artist
-Path       : /EpicArtist (Copy)/EpicAlbumDisk1/
-Track Count: 12
---------------------------------------------------------------------------------
-=============================== REDUNDANT TRACKS ===============================
-Note: Tracks listed here are found to have matching contents and metadata
---------------------------------------------------------------------------------
-Duplicate Pair:
-1. /EpicArtist/EpicAlbumDisk1/OnePieceRap_Metal_Cover.mp3
-   Artist: Epic Album Artist
-   Album Artist: Epic Album Artist
-   Album: Epic Album
-   File Size: 5641564 bytes
-
-2. /EpicArtist (Copy)/EpicAlbumDisk1/OnePieceRap_Metal_Cover.mp3
-   Artist: Epic Album Artist
-   Album Artist: Epic Album Artist
-   Album: Epic Album
-   File Size: 5641564 bytes
---------------------------------------------------------------------------------
+    ============================== LIBRARY STATISTICS ==============================
+    38 Files parsed in: 00:00:15 (h:m:s)
+    
+    Total Audio File Count:
+    mp3: 22
+    m4a: 5
+    flac: 1
+    
+    Total Non-Audio File Count:
+    jpeg: 10
+    
+    Corrupt files:1
+        -Music/EpicAnimeMusic/OnePieceRap_4kids.flac
+    
+    Total number of files: 38
+    Total number of music files: 28
+    Total duration of supported audio files: 2:21:21
+    Total size of supported audio files: 500.00 MB / 476.84 MiB
+    Total number of albums: 3
+    Total number of possible redundant albums: 1
+    Redundant Album Track Count: 12
+    
+    ALBUM ARTIST             | ALBUM                                    | ARTIST                    | TRACK COUNT | DISC NUMBER | PATH
+    ======================================================================================================================================================================================================================
+    Epic Album Artist        | Epic Album                               | Epic Artist               | Tracks: 12  | Disc: 1 | /EpicArtist/EpicAlbumDisk1/
+    Epic Album Artist        | Epic Album                               | Epic Artist               | Tracks: 10  | Disc: 2 | /EpicArtist/EpicAlbumDisk2/
+    Guitar Man and Co.       | Shredding the GUITAR II                  | Guitar Man                | Tracks: 5  | Disc: 0 | /GuitarMan/TheGuitarAlbum/
+    ============================= NORMALIZED METADATA ==============================
+    Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/Shrek_N_Roll.mp3:
+    Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/The_Shredshank_Redemption.mp3:
+    Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/Shrednado.mp3:
+    Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/Lord_of_the_SHRED.mp3:
+    Album | 'shredding the GUITAR II' -> 'Shredding the GUITAR II' | /GuitarMan/TheGuitarAlbum/Shred_Wars_the_Empire_SHREDS_Back.mp3:
+    ==================== FILES MISSING METADATA: unknown_artist ====================
+    Music/EpicAnimeMusic/OnePieceRap_4kids.flac
+    ================= FILES MISSING METADATA: unknown_album_artist =================
+    Music/EpicAnimeMusic/OnePieceRap_4kids.flac
+    ==================== FILES MISSING METADATA: unknown_album =====================
+    Music/EpicAnimeMusic/OnePieceRap_4kids.flac
+    ========================== REDUNDANT/MISTAGGED ALBUMS ==========================
+    Note: Albums listed here are either redundant or missing disc tags
+    --------------------------------------------------------------------------------
+    Album Name : Epic Album
+    Artist     : Epic Album Artist
+    Path       : /EpicArtist/EpicAlbumDisk1/
+    Track Count: 12
+    
+    Album Name : Epic Album
+    Artist     : Epic Album Artist
+    Path       : /EpicArtist (Copy)/EpicAlbumDisk1/
+    Track Count: 12
+    --------------------------------------------------------------------------------
+    =============================== REDUNDANT TRACKS ===============================
+    Note: Tracks listed here are found to have matching contents and metadata
+    --------------------------------------------------------------------------------
+    Duplicate Pair:
+    1. /EpicArtist/EpicAlbumDisk1/OnePieceRap_Metal_Cover.mp3
+       Artist: Epic Album Artist
+       Album Artist: Epic Album Artist
+       Album: Epic Album
+       File Size: 5641564 bytes
+    
+    2. /EpicArtist (Copy)/EpicAlbumDisk1/OnePieceRap_Metal_Cover.mp3
+       Artist: Epic Album Artist
+       Album Artist: Epic Album Artist
+       Album: Epic Album
+       File Size: 5641564 bytes
+    --------------------------------------------------------------------------------
