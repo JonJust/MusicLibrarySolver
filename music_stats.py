@@ -73,12 +73,46 @@ def truncate_file_name(file_name, max_length=30):
         return file_name[:max_length - 3] + '...'
     return file_name
 
+
+@dataclass
+class Metadata:
+    artist: str | None
+    album_artist: str | None
+    album: str | None
+    disc: int | None  # Disc number as an integer
+    total_discs: int | None  # Total number of discs
+    corrupt: bool
+
+
+def extract_disc_number(disc_tag):
+    """
+    Extract the disc number from various formats like '1/2', '1-2', '1 of 2'.
+
+    :param disc_tag: Raw disc number string from metadata.
+    :return: Tuple (disc_number, total_discs) as integers, or (None, None) if not found.
+    """
+    if not disc_tag:
+        return None, None
+
+    # Convert lists to string if needed
+    if isinstance(disc_tag, list):
+        disc_tag = disc_tag[0]  # Use the first value
+
+    match = re.match(r"(\d+)\s*(?:[/\-of]\s*(\d+))?", str(disc_tag).strip(), re.IGNORECASE)
+    if match:
+        disc_number = int(match.group(1))
+        total_discs = int(match.group(2)) if match.group(2) else None
+        return disc_number, total_discs
+
+    return None, None
+
+
 def get_metadata(file_path):
     """
-    Extract metadata (artist, album artist, album) from a media file.
+    Extract metadata (artist, album artist, album, disc number) from a media file.
 
     :param file_path: Path to the media file.
-    :return: Tuple of (artist, album_artist, album, corrupt), each can be None.
+    :return: Metadata object with extracted fields.
     """
     try:
         audio_file = File(file_path, easy=True)
@@ -86,18 +120,25 @@ def get_metadata(file_path):
             artist = audio_file.get('artist', [None])[0]
             album_artist = audio_file.get('albumartist', [None])[0]
             album = audio_file.get('album', [None])[0]
-            return (
-                str(artist) if artist is not None else None,
-                str(album_artist) if album_artist is not None else None,
-                str(album) if album is not None else None,
-                False
-            )
-    except Exception as e:
-        #print(f"Error reading metadata for {file_path}: {e}", file=sys.stderr) # Screws up tqdm
-        if e:
-            return None, None, None, True
 
-    return None, None, None, False
+            # Try multiple possible keys for disc number
+            disc_raw = audio_file.get('discnumber', [None])[0] or audio_file.get('disc', [None])[0]
+
+            # Extract structured disc number data
+            disc, total_discs = extract_disc_number(disc_raw)
+
+            return Metadata(
+                artist=str(artist) if artist else None,
+                album_artist=str(album_artist) if album_artist else None,
+                album=str(album) if album else None,
+                disc=disc,  # Store as integer if valid
+                total_discs=total_discs,  # Store total number of discs
+                corrupt=False
+            )
+    except Exception:
+        return Metadata(None, None, None, None, None, True)
+
+    return Metadata(None, None, None, None, None, False)
 
 
 def is_roman_numeral(word):
@@ -350,6 +391,23 @@ def truncate_string(s, max_length=25):
         return s[:max_length - 3] + "..."
     return s
 
+def extract_disc_info(input_string):
+    """
+    Extracts the main string and the disc number from an input string.
+
+    :param input_string: The original string containing "(Disc n)" optionally.
+    :return: Tuple (cleaned_string, disc_number)
+    """
+    match = re.search(r"\(Disc (\d+)\)", input_string, re.IGNORECASE)
+
+    if match:
+        disc_number = match.group(1)  # Extracts the number
+        cleaned_string = re.sub(r"\s*\(Disc \d+\)", "", input_string)  # Removes "(Disc n)"
+    else:
+        disc_number = "0"
+        cleaned_string = input_string  # Keep the string as-is
+
+    return str(cleaned_string.strip()), str(disc_number)  # Ensure both are strings
 
 def log_all_albums(album_tree, root_path):
     """
@@ -395,8 +453,9 @@ def log_all_albums(album_tree, root_path):
     COLUMN_WIDTHS = {
         'album_artist': 25,
         'artist': 25,
-        'album': 25,
+        'album': 40,
         'track_count': 11,
+        'disc_number': 8,
         'path': 95
     }
 
@@ -406,6 +465,7 @@ def log_all_albums(album_tree, root_path):
         f"{'ALBUM'.ljust(COLUMN_WIDTHS['album'])} | "
         f"{'ARTIST'.ljust(COLUMN_WIDTHS['artist'])} | "
         f"{'TRACK COUNT'.ljust(COLUMN_WIDTHS['track_count'])} | "
+        f"{'DISC NUMBER'.ljust(COLUMN_WIDTHS['track_count'])} | "
         f"{'PATH'.ljust(COLUMN_WIDTHS['path'])}"
     )
     print(header)
@@ -416,7 +476,10 @@ def log_all_albums(album_tree, root_path):
         # Truncate metadata strings if necessary
         album_artist = truncate_string(album['album_artist'], COLUMN_WIDTHS['album_artist'])
         artist = truncate_string(album['artist'], COLUMN_WIDTHS['artist'])
-        album_name = truncate_string(album['album'], COLUMN_WIDTHS['album'])
+
+        # Parse album name from concatenated string [Epicloud (Disc 1) -> Epicloud]
+        cleaned, disc_num_str = extract_disc_info(album['album'])
+        album_name = truncate_string(cleaned, COLUMN_WIDTHS['album'])
         path = truncate_string(eliminate_common_prefix(root_path, album['path'])[1:], COLUMN_WIDTHS['path'])  # Optional: Truncate path if needed
 
         # Format each line with fixed-width columns
@@ -425,6 +488,7 @@ def log_all_albums(album_tree, root_path):
             f"{album_name.ljust(COLUMN_WIDTHS['album'])} | "
             f"{artist.ljust(COLUMN_WIDTHS['artist'])} | "
             f"{'Tracks: ' + str(album['track_count']).ljust(COLUMN_WIDTHS['track_count'] - 8)} | "
+            f"{'Disc: ' + disc_num_str.ljust(COLUMN_WIDTHS['disc_number'] - 8)} | "
             f"{path.ljust(COLUMN_WIDTHS['path'])}"
         )
         print(line)
@@ -552,15 +616,16 @@ def prompt_fix_metadata(missing_folders, metadata_type, exceptions, media_extens
             full_path = os.path.join(folder, file_path)
             if os.path.isfile(full_path) and not file_path.startswith('.'):
                 # Check if the specific metadata is missing
-                artist, album_artist, album, corrupt = get_metadata(full_path)
-                if corrupt:
+                metadata = get_metadata(full_path)
+
+                if metadata.corrupt:
                     print(f"Error: file '{file_path}' is corrupt!")
                 else:
-                    if metadata_type == 'album_artist' and not album_artist:
+                    if metadata_type == 'album_artist' and not metadata.album_artist:
                         affected_files.append(full_path)
-                    elif metadata_type == 'album' and not album:
+                    elif metadata_type == 'album' and not metadata.album:
                         affected_files.append(full_path)
-                    elif metadata_type == 'artist' and not artist:
+                    elif metadata_type == 'artist' and not metadata.artist:
                         affected_files.append(full_path)
 
         if not affected_files:
@@ -812,7 +877,7 @@ def print_album_statistics(album_tree, list_redundant_albums):
     print(f"Total number of albums: {total_albums}")
     if list_redundant_albums:
         print(f"Total number of possible redundant albums: {redundant_albums}")
-        print(f"Track Count of possibly redundant albums: {redundant_track_count}")
+        print(f"Redundant Album Track Count: {redundant_track_count}")
         # Uncomment and implement later if tracking redundant album size
         # print(f"Redundant Albums Total Size: {humanize.naturalsize(redundant_total_size, binary=True)}")
         # print(f"Redundant Albums Total Duration: {humanize.precise delta(redundant_total_duration)}")
@@ -906,8 +971,9 @@ def process_file_multithreaded(file_path, options:ProcessingOptions, media_exten
         # Initialize track data
 
         # Initialize track data
-        artist, album_artist, album, corrupt = get_metadata(file_path)
-        if corrupt:  # Don't try to faff with corrupt files
+        metadata = get_metadata(file_path)
+
+        if metadata.corrupt:  # Don't try to faff with corrupt files
             buffers.corrupt_file_count += 1
             buffers.corrupt_files.append(file_path)
             return
@@ -926,34 +992,42 @@ def process_file_multithreaded(file_path, options:ProcessingOptions, media_exten
         buffers.total_size += file_size
 
         folder_path = os.path.dirname(file_path)
-        if options.list_unknown_artist and not artist:
+        if options.list_unknown_artist and not metadata.artist:
             buffers.missing_artist.append(file_path)
             buffers.folders_missing_artist.add(folder_path)
-        if options.list_unknown_album_artist and not album_artist:
+        if options.list_unknown_album_artist and not metadata.album_artist:
             buffers.missing_album_artist.append(file_path)
             buffers.folders_missing_album_artist.add(folder_path)
-        if options.list_unknown_album and not album:
+        if options.list_unknown_album and not metadata.album:
             buffers.missing_album.append(file_path)
             buffers.folders_missing_album.add(folder_path)
 
         # If we are fixing missing metadata, add the path to the respective list
-        if options.fix_missing_artist and not artist:
+        if options.fix_missing_artist and not metadata.artist:
             buffers.folders_missing_artist.add(folder_path)
-        if options.fix_missing_album_artist and not album_artist:
+        if options.fix_missing_album_artist and not metadata.album_artist:
             buffers.folders_missing_album_artist.add(folder_path)
-        if options.fix_missing_album and not album:
+        if options.fix_missing_album and not metadata.album:
             buffers.folders_missing_album.add(folder_path)
 
         # Normalize metadata capitalization if requested
         exceptions = {"a", "an", "and", "as", "at", "but", "by",
                       "for", "in", "nor", "of", "on", "or", "the", "up"}
-        if options.normalize_capitalization_flag and (artist or album_artist or album):
-            normalize_and_save_metadata(file_path, artist, album_artist, album,
+        if options.normalize_capitalization_flag and (metadata.artist or metadata.album_artist or metadata.album):
+            normalize_and_save_metadata(file_path, metadata.artist, metadata.album_artist, metadata.album,
                                         exceptions, buffers.normalized_updates, options.verbose)
 
         # Insert into the album tree
-        if album and artist:
-            is_new_album, is_redundant = insert_album(buffers.album_tree, album, artist, folder_path, album_artist)
+        if metadata.album and metadata.artist:
+
+            # Append Disc metadata to the album name for its key in the album tree.
+            # This will prevent albums with multiple discs from being marked redundant.
+            album_name:str = metadata.album
+            if metadata.disc is not None:
+                album_name += f" (Disc {str(metadata.disc)})"
+                #print(album_name)
+
+            is_new_album, is_redundant = insert_album(buffers.album_tree, album_name, metadata.artist, folder_path, metadata.album_artist)
             if is_new_album:
                 buffers.total_albums += 1
             if is_redundant:
@@ -961,9 +1035,9 @@ def process_file_multithreaded(file_path, options:ProcessingOptions, media_exten
 
         track = Track(
             file_path=file_path,
-            artist=artist,
-            album_artist=album_artist,
-            album=album,
+            artist=metadata.artist,
+            album_artist=metadata.album_artist,
+            album=metadata.album,
             file_size=file_size,
             crc=crc
         )
@@ -1249,3 +1323,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ToDo:
+# Create functionality to delete target extension files
+# Prompr user on disc for redundant albums in folders??
