@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 
-import os
 import argparse
 import ffmpeg
-import humanize
-from tqdm import tqdm
-import datetime
-from datetime import datetime as dt
 from mutagen import File
-import sys
 import re
-from collections import defaultdict
 from dataclasses import dataclass, field
 import zlib
 from typing import List
-import time
 
 @dataclass
 class Track:
@@ -101,8 +93,9 @@ def get_metadata(file_path):
                 False
             )
     except Exception as e:
-        #print(f"Error reading metadata for {file_path}: {e}", file=sys.stderr)
-        return None, None, None, True
+        #print(f"Error reading metadata for {file_path}: {e}", file=sys.stderr) # Screws up tqdm
+        if e:
+            return None, None, None, True
 
     return None, None, None, False
 
@@ -254,128 +247,96 @@ def get_unique_log_filename(current_working_dir, log_type, date_stamp, scanned_d
         counter += 1
     return filepath
 
-def log_missing_metadata(current_working_dir, file_list, log_type, scanned_dir_basename):
+def log_missing_metadata(file_list, log_type):
     """
     Log files with missing metadata to a uniquely named text file.
 
-    :param current_working_dir: The directory where the log file will be saved.
     :param file_list: List of file paths with missing metadata.
     :param log_type: Type of missing metadata (e.g., "unknown_artist").
-    :param scanned_dir_basename: Basename of the directory being scanned.
     """
-    if not file_list:
-        return  # If no missing metadata, don't create the file
-    date_stamp = dt.now().strftime("%Y-%m-%d")
-    log_filepath = get_unique_log_filename(current_working_dir, log_type, date_stamp, scanned_dir_basename)
-    try:
-        with open(log_filepath, 'w') as f:
-            for file_path in file_list:
-                f.write(f"{file_path}\n")
-        print(f"{log_type.replace('_', ' ').capitalize()} log written to {log_filepath}")
-    except Exception as e:
-        print(f"Error writing log file {log_filepath}: {e}", file=sys.stderr)
 
-def log_normalized_metadata(current_working_dir, normalized_updates, scanned_dir_basename):
+    print(f"====================== FILES MISSING METADATA ({log_type}) =============================")
+    if file_list:
+        for file_path in file_list:
+            print(f"{file_path}")
+    else:
+        print("No files missing metadata.")
+
+def log_normalized_metadata(normalized_updates):
     """
     Log metadata normalization updates to a uniquely named text file.
 
-    :param current_working_dir: The directory where the log file will be saved.
     :param normalized_updates: List of normalization updates.
-    :param scanned_dir_basename: Basename of the directory being scanned.
     """
-    if not normalized_updates:
-        return  # If no metadata was normalized, don't create the file
-    date_stamp = dt.now().strftime("%Y-%m-%d")
-    log_type = "updated_metadata"
-    log_filepath = get_unique_log_filename(current_working_dir, log_type, date_stamp, scanned_dir_basename)
-    try:
-        with open(log_filepath, 'w') as f:
-            for update in normalized_updates:
-                file_path = update['file_path']
-                field = update['field']
-                original = update['original']
-                updated = update['updated']
-                f.write(f"{file_path}: {field} - '{original}' -> '{updated}'\n")
-        print(f"Normalized metadata log written to {log_filepath}")
-    except Exception as e:
-        print(f"Error writing log file {log_filepath}: {e}", file=sys.stderr)
 
-def log_redundant_tracks(current_working_dir, redundant_tracks, scanned_dir_basename):
+    print(f"====================== NORMALIZED METADATA =============================")
+    if normalized_updates:
+        for update in normalized_updates:
+            file_path = update['file_path']
+            update_field = update['field']
+            original = update['original']
+            updated = update['updated']
+            print(f"{update_field} | '{original}' -> '{updated}' | {file_path}: ")
+    else:
+        print("No tracks changed.")
+
+def log_redundant_tracks(redundant_tracks):
     """
     Log redundant (duplicate) tracks to a uniquely named text file and print to console.
 
-    :param current_working_dir: The directory where the log file will be saved.
     :param redundant_tracks: List of tuples containing duplicate Track pairs.
-    :param scanned_dir_basename: Basename of the directory being scanned.
     """
     if not redundant_tracks:
         print("No redundant tracks found.")
         return
 
-    date_stamp = dt.now().strftime("%Y-%m-%d")
-    log_type = "redundant_tracks"
-    log_filepath = get_unique_log_filename(current_working_dir, log_type, date_stamp, scanned_dir_basename)
+    print(f"====================== REDUNDANT TRACKS =============================")
 
-    try:
-        with open(log_filepath, 'w') as f:
-            for track1, track2 in redundant_tracks:
-                f.write(f"Duplicate Pair:\n")
-                f.write(f"1. {track1.file_path}\n")
-                f.write(f"   Artist: {track1.artist}\n")
-                f.write(f"   Album Artist: {track1.album_artist}\n")
-                f.write(f"   Album: {track1.album}\n")
-                f.write(f"   File Size: {track1.file_size} bytes\n\n")
+    for track1, track2 in redundant_tracks:
+        print(f"Duplicate Pair:")
+        print(f"1. {track1.file_path}")
+        print(f"   Artist: {track1.artist}")
+        print(f"   Album Artist: {track1.album_artist}")
+        print(f"   Album: {track1.album}")
+        print(f"   File Size: {track1.file_size} bytes\n")
 
-                f.write(f"2. {track2.file_path}\n")
-                f.write(f"   Artist: {track2.artist}\n")
-                f.write(f"   Album Artist: {track2.album_artist}\n")
-                f.write(f"   Album: {track2.album}\n")
-                f.write(f"   File Size: {track2.file_size} bytes\n")
-                f.write("-" * 80 + "\n")
+        print(f"2. {track2.file_path}")
+        print(f"   Artist: {track2.artist}")
+        print(f"   Album Artist: {track2.album_artist}")
+        print(f"   Album: {track2.album}")
+        print(f"   File Size: {track2.file_size} bytes")
+        print("-" * 80 + "")
 
-        print(f"Redundant tracks logged to {log_filepath}")
 
-    except Exception as e:
-        print(f"Error writing redundant tracks log file {log_filepath}: {e}", file=sys.stderr)
-
-def log_redundant_albums(album_tree, scanned_dir_basename, current_working_dir):
+def log_redundant_albums(album_tree):
     """
     Log all redundant albums to a text file in a human-readable format.
 
     :param album_tree: Dictionary representing the album tree.
-    :param scanned_dir_basename: Basename of the scanned directory.
-    :param current_working_dir: Directory where logs are saved.
     """
-    date_stamp = dt.now().strftime("%Y-%m-%d")
-    log_type = "redundant_albums"
-    log_filepath = get_unique_log_filename(current_working_dir, log_type, date_stamp, scanned_dir_basename)
 
-    try:
-        with open(log_filepath, 'w', encoding='utf-8') as f:
-            for album in album_tree.values():
+    print(f"============== POSSIBLE REDUNDANT ALBUMS =============================")
 
-                if len(album.redundant) > 0:
-                    f.write("=" * 80 + "\n\n")
-                    f.write(f"Album Name : {album.album_name}\n")
-                    f.write(f"Artist     : {album.artist}\n")
-                    f.write(f"Path       : {album.path}\n")
-                    f.write(f"Track Count: {album.trackcount}\n")
+    for album in album_tree.values():
 
-                    for redundant_album in album.redundant:
-                        f.write(f"\nAlbum Name : {redundant_album.album_name}\n")
-                        f.write(f"Artist     : {redundant_album.artist}\n")
-                        f.write(f"Path       : {redundant_album.path}\n")
-                        f.write(f"Track Count: {redundant_album.trackcount}\n")
+        if len(album.redundant) > 0:
+            print(f"Album Name : {album.album_name}")
+            print(f"Artist     : {album.artist}")
+            print(f"Path       : {album.path}")
+            print(f"Track Count: {album.track_count}")
 
-                    f.write("=" * 80 + "\n\n")
-        print(f"Redundant albums have been logged to {log_filepath}")
-    except Exception as e:
-        print(f"Error writing redundant albums log file {log_filepath}: {e}", file=sys.stderr)
+            for redundant_album in album.redundant:
+                print(f"\nAlbum Name : {redundant_album.album_name}")
+                print(f"Artist     : {redundant_album.artist}")
+                print(f"Path       : {redundant_album.path}")
+                print(f"Track Count: {redundant_album.track_count}")
+
+            print("=" * 80)
 
 # Used for printing relative path of file
 def eliminate_common_prefix(rootpath: str, filepath: str) -> str:
-    rootlen = len(rootpath)
-    return "/" + filepath[rootlen:] + "/"
+    root_len = len(rootpath)
+    return "/" + filepath[root_len:] + "/"
 
 def truncate_string(s, max_length=25):
     """
@@ -390,21 +351,17 @@ def truncate_string(s, max_length=25):
     return s
 
 
-def log_all_albums(album_tree, scanned_dir_basename, current_working_dir, root_path):
+def log_all_albums(album_tree, root_path):
     """
     Log all albums to a text file, sorted alphabetically by album_artist.
     Each line in the text file will have the format:
-    <album_artist> <artist> <album> <path> <trackcount>
+    <album_artist> <artist> <album> <path> <track_count>
 
     Metadata strings longer than 25 characters are truncated with '...'.
 
+    :param root_path: Root directory music library lives in. Used to clip out root dir from album paths.
     :param album_tree: Dictionary representing the album tree.
-    :param scanned_dir_basename: Basename of the scanned directory.
-    :param current_working_dir: Directory where logs are saved.
     """
-    date_stamp = dt.now().strftime("%Y-%m-%d")
-    log_type = "all_albums"
-    log_filepath = get_unique_log_filename(current_working_dir, log_type, date_stamp, scanned_dir_basename)
 
     # Collect all albums (primary and redundant)
     all_albums = []
@@ -416,7 +373,7 @@ def log_all_albums(album_tree, scanned_dir_basename, current_working_dir, root_p
             'artist': album.artist,
             'album': album.album_name,
             'path': album.path,
-            'trackcount': album.trackcount
+            'track_count': album.track_count
         })
         # Redundant albums
         for redundant in album.redundant:
@@ -425,7 +382,7 @@ def log_all_albums(album_tree, scanned_dir_basename, current_working_dir, root_p
                 'artist': redundant.artist,
                 'album': redundant.album_name,
                 'path': redundant.path,
-                'trackcount': redundant.trackcount
+                'track_count': redundant.track_count
             })
 
     # Sort the albums alphabetically by album_artist, then by artist, then by album
@@ -436,50 +393,42 @@ def log_all_albums(album_tree, scanned_dir_basename, current_working_dir, root_p
 
     # Define column widths
     COLUMN_WIDTHS = {
-        'album_artist': 35,
-        'artist': 35,
-        'album': 35,
-        'trackcount': 10,
-        'path': 65
+        'album_artist': 25,
+        'artist': 25,
+        'album': 25,
+        'track_count': 11,
+        'path': 95
     }
 
-    try:
-        with (open(log_filepath, 'w', encoding='utf-8') as f):
-            # Write Header
-            header = (
-                f"{'ALBUM ARTIST'.ljust(COLUMN_WIDTHS['album_artist'])} | "
-                f"{'ALBUM'.ljust(COLUMN_WIDTHS['album'])} | "
-                f"{'ARTIST'.ljust(COLUMN_WIDTHS['artist'])} | "
-                f"{'TRACK COUNT'.ljust(COLUMN_WIDTHS['trackcount'])} | "
-                f"{'PATH'.ljust(COLUMN_WIDTHS['path'])}\n"
-            )
-            f.write(header)
-            f.write("=" * (sum(COLUMN_WIDTHS.values()) + 9) + "\n\n")  # 9 for separators and spaces
+    # Write Header
+    header = (
+        f"{'\nALBUM ARTIST'.ljust(COLUMN_WIDTHS['album_artist'])} | "
+        f"{'ALBUM'.ljust(COLUMN_WIDTHS['album'])} | "
+        f"{'ARTIST'.ljust(COLUMN_WIDTHS['artist'])} | "
+        f"{'TRACK COUNT'.ljust(COLUMN_WIDTHS['track_count'])} | "
+        f"{'PATH'.ljust(COLUMN_WIDTHS['path'])}"
+    )
+    print(header)
+    print("=" * (sum(COLUMN_WIDTHS.values()) + 9))  # 9 for separators and spaces
 
-            # Write Album Entries
-            for album in all_albums_sorted:
-                # Truncate metadata strings if necessary
-                album_artist = truncate_string(album['album_artist'], COLUMN_WIDTHS['album_artist'])
-                artist = truncate_string(album['artist'], COLUMN_WIDTHS['artist'])
-                album_name = truncate_string(album['album'], COLUMN_WIDTHS['album'])
-                path = truncate_string(eliminate_common_prefix(root_path, album['path']), COLUMN_WIDTHS['path'])  # Optional: Truncate path if needed
+    # Write Album Entries
+    for album in all_albums_sorted:
+        # Truncate metadata strings if necessary
+        album_artist = truncate_string(album['album_artist'], COLUMN_WIDTHS['album_artist'])
+        artist = truncate_string(album['artist'], COLUMN_WIDTHS['artist'])
+        album_name = truncate_string(album['album'], COLUMN_WIDTHS['album'])
+        path = truncate_string(eliminate_common_prefix(root_path, album['path'])[1:], COLUMN_WIDTHS['path'])  # Optional: Truncate path if needed
 
+        # Format each line with fixed-width columns
+        line = (
+            f"{album_artist.ljust(COLUMN_WIDTHS['album_artist'])} | "
+            f"{album_name.ljust(COLUMN_WIDTHS['album'])} | "
+            f"{artist.ljust(COLUMN_WIDTHS['artist'])} | "
+            f"{'Tracks: ' + str(album['track_count']).ljust(COLUMN_WIDTHS['track_count'] - 8)} | "
+            f"{path.ljust(COLUMN_WIDTHS['path'])}"
+        )
+        print(line)
 
-                # Format each line with fixed-width columns
-                line = (
-                    f"{album_artist.ljust(COLUMN_WIDTHS['album_artist'])} | "
-                    f"{album_name.ljust(COLUMN_WIDTHS['album'])} | "
-                    f"{artist.ljust(COLUMN_WIDTHS['artist'])} | "
-                    f"{'Tracks: ' + str(album['trackcount']).ljust(COLUMN_WIDTHS['trackcount'] - 8)} | "
-                    f"{path.ljust(COLUMN_WIDTHS['path'])}\n"
-                )
-                f.write(line)
-                # Add separator between entries
-                #f.write("=" * (sum(COLUMN_WIDTHS.values()) + 9) + "\n")
-
-        print(f"All albums have been logged to {log_filepath}")
-    except Exception as e:
-        print(f"Error writing all albums log file {log_filepath}: {e}", file=sys.stderr)
 
 
 def find_redundant_tracks(crc_map):
@@ -511,10 +460,11 @@ def find_redundant_tracks(crc_map):
 
     return redundant_tracks, duplicates_count
 
-def normalize_and_save_metadata(file_path, artist, album_artist, album, exceptions, normalized_updates):
+def normalize_and_save_metadata(file_path, artist, album_artist, album, exceptions, normalized_updates, verbose):
     """
     Normalize metadata capitalization and save changes if necessary.
 
+    :param verbose: Prints to console if set
     :param file_path: Path to the media file.
     :param artist: Original artist metadata.
     :param album_artist: Original album artist metadata.
@@ -525,7 +475,7 @@ def normalize_and_save_metadata(file_path, artist, album_artist, album, exceptio
     updated = False
     try:
         audio_file = File(file_path, easy=True)
-        if not audio_file:
+        if not audio_file and verbose:
             print(f"Cannot open file for metadata editing: {file_path}", file=sys.stderr)
             return
 
@@ -535,13 +485,14 @@ def normalize_and_save_metadata(file_path, artist, album_artist, album, exceptio
             if normalized_artist != artist:
                 audio_file['artist'] = normalized_artist
                 updated = True
-                print(f"Normalized Artist: '{artist}' -> '{normalized_artist}'")
-                normalized_updates.append({
-                    'file_path': file_path,
-                    'field': 'Artist',
-                    'original': artist,
-                    'updated': normalized_artist
-                })
+                if verbose:
+                    print(f"Normalized Artist: '{artist}' -> '{normalized_artist}'")
+                    normalized_updates.append({
+                        'file_path': file_path,
+                        'field': 'Artist',
+                        'original': artist,
+                        'updated': normalized_artist
+                    })
 
         # Normalize Album Artist
         if album_artist:
@@ -549,7 +500,8 @@ def normalize_and_save_metadata(file_path, artist, album_artist, album, exceptio
             if normalized_album_artist != album_artist:
                 audio_file['albumartist'] = normalized_album_artist
                 updated = True
-                print(f"Normalized Album Artist: '{album_artist}' -> '{normalized_album_artist}'")
+                if verbose:
+                    print(f"Normalized Album Artist: '{album_artist}' -> '{normalized_album_artist}'")
                 normalized_updates.append({
                     'file_path': file_path,
                     'field': 'Album Artist',
@@ -563,7 +515,8 @@ def normalize_and_save_metadata(file_path, artist, album_artist, album, exceptio
             if normalized_album != album:
                 audio_file['album'] = normalized_album
                 updated = True
-                print(f"Normalized Album: '{album}' -> '{normalized_album}'")
+                if verbose:
+                    print(f"Normalized Album: '{album}' -> '{normalized_album}'")
                 normalized_updates.append({
                     'file_path': file_path,
                     'field': 'Album',
@@ -573,19 +526,19 @@ def normalize_and_save_metadata(file_path, artist, album_artist, album, exceptio
 
         if updated:
             audio_file.save()
-            print(f"Metadata updated for file: {file_path}")
+            if verbose:
+                print(f"Metadata updated for file: {file_path}")
 
     except Exception as e:
-        print(f"Error normalizing metadata for {file_path}: {e}", file=sys.stderr)
+        if verbose:
+            print(f"Error normalizing metadata for {file_path}: {e}", file=sys.stderr)
 
-def prompt_fix_metadata(missing_folders, metadata_type, current_working_dir, scanned_dir_basename, exceptions, media_extensions):
+def prompt_fix_metadata(missing_folders, metadata_type, exceptions, media_extensions):
     """
     Prompt the user to fix missing metadata for each folder.
 
     :param missing_folders: List of folder paths with missing metadata.
     :param metadata_type: Type of metadata missing ('album_artist', 'album', 'artist').
-    :param current_working_dir: Directory where logs are saved.
-    :param scanned_dir_basename: Basename of the scanned directory.
     :param exceptions: Set of exception words.
     :param media_extensions: Set of supported audio file extensions.
     """
@@ -707,7 +660,7 @@ class Album:
     artist: str
     path: str
     album_artist: str
-    trackcount: int = 1
+    track_count: int = 1
     redundant: List['Album'] = field(default_factory=list)
 
 def extract_all_albums(album_tree):
@@ -735,7 +688,7 @@ def merge_album_trees(album_trees):
 
     # Insert all extracted albums into the merged tree
     for album in all_albums:
-        insert_album(merged_tree, album.album_name, album.artist, album.path, album.album_artist, album.trackcount)
+        insert_album(merged_tree, album.album_name, album.artist, album.path, album.album_artist, album.track_count)
 
     return merged_tree
 
@@ -764,7 +717,7 @@ def insert_album(album_tree, album_name, artist, folder_path, album_artist, trac
             album_name=album_name,
             artist=artist,
             album_artist=album_artist,
-            trackcount=track_count,
+            track_count=track_count,
             path=folder_path
         )
         return True, False  # is_new_album, is_redundant
@@ -772,24 +725,24 @@ def insert_album(album_tree, album_name, artist, folder_path, album_artist, trac
         existing_album = album_tree[album_key]
         if existing_album.album_artist.lower() == album_artist_key and existing_album.path == folder_path:
             # Exact match, increment track count
-            existing_album.trackcount += track_count
+            existing_album.track_count += track_count
             return False, False
         elif existing_album.album_artist.lower() == album_artist_key and existing_album.path != folder_path:
             # Same album and album_artist but different path, check redundancy
             duplicate = False
             for redundant_album in existing_album.redundant:
                 if redundant_album.path == folder_path:
-                    redundant_album.trackcount += track_count
+                    redundant_album.track_count += track_count
                     duplicate = True
 
                     # Check if this redundant album has now grown larger than the base album
-                    if redundant_album.trackcount > existing_album.trackcount:
+                    if redundant_album.track_count > existing_album.track_count:
                         # Swap base album with the larger redundant album
                         existing_album.album_name, redundant_album.album_name = redundant_album.album_name, existing_album.album_name
                         existing_album.artist, redundant_album.artist = redundant_album.artist, existing_album.artist
                         existing_album.album_artist, redundant_album.album_artist = redundant_album.album_artist, existing_album.album_artist
                         existing_album.path, redundant_album.path = redundant_album.path, existing_album.path
-                        existing_album.trackcount, redundant_album.trackcount = redundant_album.trackcount, existing_album.trackcount
+                        existing_album.track_count, redundant_album.track_count = redundant_album.track_count, existing_album.track_count
                     break
 
             if not duplicate:
@@ -797,19 +750,19 @@ def insert_album(album_tree, album_name, artist, folder_path, album_artist, trac
                     album_name=album_name,
                     artist=artist,
                     album_artist=album_artist,
-                    trackcount=track_count,
+                    track_count=track_count,
                     path=folder_path
                 )
                 existing_album.redundant.append(new_redundant)
 
                 # Check if the new redundant album has more tracks than the base
-                if new_redundant.trackcount > existing_album.trackcount:
+                if new_redundant.track_count > existing_album.track_count:
                     # Swap the base album with the redundant album
                     existing_album.album_name, new_redundant.album_name = new_redundant.album_name, existing_album.album_name
                     existing_album.artist, new_redundant.artist = new_redundant.artist, existing_album.artist
                     existing_album.album_artist, new_redundant.album_artist = new_redundant.album_artist, existing_album.album_artist
                     existing_album.path, new_redundant.path = new_redundant.path, existing_album.path
-                    existing_album.trackcount, new_redundant.trackcount = new_redundant.trackcount, existing_album.trackcount
+                    existing_album.track_count, new_redundant.track_count = new_redundant.track_count, existing_album.track_count
 
                 return False, True
             else:
@@ -822,13 +775,13 @@ def insert_album(album_tree, album_name, artist, folder_path, album_artist, trac
                     album_name=album_name,
                     artist=artist,
                     album_artist=album_artist,
-                    trackcount=track_count,
+                    track_count=track_count,
                     path=folder_path
                 )
                 return True, False
             else:
                 # Exact match in unique key
-                album_tree[unique_key].trackcount += track_count
+                album_tree[unique_key].track_count += track_count
                 return False, False
 
 
@@ -836,11 +789,12 @@ def print_album_statistics(album_tree, list_redundant_albums):
     """
     Print statistics about total and redundant albums.
 
+    :param list_redundant_albums: Lists redundant albums if set
     :param album_tree: Dictionary representing the album tree.
     """
     total_albums = 0
     redundant_albums = 0
-    redundant_trackcount = 0
+    redundant_track_count = 0
     #redundant_total_size = 0
     #redundant_total_duration = 0.0
 
@@ -848,8 +802,8 @@ def print_album_statistics(album_tree, list_redundant_albums):
         total_albums += 1
         for redundant in album.redundant:
             redundant_albums += 1
-            redundant_trackcount += redundant.trackcount
-            #print(f"trackcount {redundant.trackcount}, name {redundant.album_name}, path {redundant.path}")
+            redundant_track_count += redundant.track_count
+            #print(f"track count {redundant.track_count}, name {redundant.album_name}, path {redundant.path}")
             # If you have track durations and sizes per album, aggregate them here
             # For simplicity, these are left as placeholders
             # redundant_total_size += calculate_size(redundant)
@@ -857,11 +811,11 @@ def print_album_statistics(album_tree, list_redundant_albums):
 
     print(f"Total number of albums: {total_albums}")
     if list_redundant_albums:
-        print(f"Total number of redundant albums: {redundant_albums}")
-        print(f"Redundant Albums Track Count: {redundant_trackcount}")
+        print(f"Total number of possible redundant albums: {redundant_albums}")
+        print(f"Track Count of possibly redundant albums: {redundant_track_count}")
         # Uncomment and implement later if tracking redundant album size
         # print(f"Redundant Albums Total Size: {humanize.naturalsize(redundant_total_size, binary=True)}")
-        # print(f"Redundant Albums Total Duration: {humanize.precisedelta(redundant_total_duration)}")
+        # print(f"Redundant Albums Total Duration: {humanize.precise delta(redundant_total_duration)}")
 
 def format_elapsed_time(elapsed_seconds):
     hours = int(elapsed_seconds // 3600)
@@ -995,7 +949,7 @@ def process_file_multithreaded(file_path, options:ProcessingOptions, media_exten
                       "for", "in", "nor", "of", "on", "or", "the", "up"}
         if options.normalize_capitalization_flag and (artist or album_artist or album):
             normalize_and_save_metadata(file_path, artist, album_artist, album,
-                                        exceptions, buffers.normalized_updates)
+                                        exceptions, buffers.normalized_updates, options.verbose)
 
         # Insert into the album tree
         if album and artist:
@@ -1059,6 +1013,10 @@ def process_directory(directory, options: ProcessingOptions):
                     progress = progress_queue.get()
                     if progress is None:
                         break
+
+                    # Ensure we don't exceed 100%
+                    if status_bar.n + progress > total_files:
+                        break
                     status_bar.update(progress)
 
     updater_thread = multiprocessing.Process(target=tqdm_updater, args=(len(all_files),))
@@ -1099,70 +1057,13 @@ def process_directory(directory, options: ProcessingOptions):
         final_buffers.folders_missing_album.update(buffer.folders_missing_album)
         final_buffers.all_tracks.extend(buffer.all_tracks)
         final_buffers.corrupt_files.extend(buffer.corrupt_files)
+        final_buffers.normalized_updates.extend(buffer.normalized_updates)
 
         # Parse all albums into the final album buffer
         album_buffers.append(buffer.album_tree)
 
     final_buffers.album_tree = merge_album_trees(album_buffers)
     scanned_dir_basename = os.path.basename(os.path.normpath(directory))
-    current_working_dir = os.getcwd()
-
-    # Log missing metadata
-    if options.list_unknown_artist:
-        log_missing_metadata(current_working_dir, final_buffers.missing_artist, "unknown_artist", scanned_dir_basename)
-    if options.list_unknown_album_artist:
-        log_missing_metadata(current_working_dir, final_buffers.missing_album_artist, "unknown_album_artist", scanned_dir_basename)
-    if options.list_unknown_album:
-        log_missing_metadata(current_working_dir, final_buffers.missing_album, "unknown_album", scanned_dir_basename)
-    if options.list_redundant_album:
-        log_redundant_albums(final_buffers.album_tree, scanned_dir_basename, current_working_dir)
-    if options.list_all_albums:
-        log_all_albums(final_buffers.album_tree, scanned_dir_basename, current_working_dir, directory)
-
-    # Log normalized metadata updates
-    if options.normalize_capitalization_flag:
-        log_normalized_metadata(current_working_dir, final_buffers.normalized_updates, scanned_dir_basename)
-
-    # Handle redundant tracks
-    if options.list_redundant_tracks:
-        # Build CRC map
-        crc_map, crc_collision_count = build_crc_map(final_buffers.all_tracks)
-        redundant_tracks, duplicates_count = find_redundant_tracks(crc_map)
-        log_redundant_tracks(current_working_dir, redundant_tracks, scanned_dir_basename)
-        print(f"Total redundant track pairs found: {duplicates_count}")
-        print(f"Total CRC collisions detected: {crc_collision_count}")
-
-    # Handle interactive metadata fixing
-    if options.fix_missing_album_artist or options.fix_missing_album or options.fix_missing_artist:
-        exceptions = {"a", "an", "and", "as", "at", "but", "by",
-                      "for", "in", "nor", "of", "on", "or", "the", "up"}
-
-        if options.fix_missing_album_artist and final_buffers.folders_missing_album_artist:
-            prompt_fix_metadata(
-                missing_folders=list(final_buffers.folders_missing_album_artist),
-                metadata_type='album_artist',
-                current_working_dir=current_working_dir,
-                scanned_dir_basename=scanned_dir_basename,
-                exceptions=exceptions,
-                media_extensions=media_extensions)
-
-        if options.fix_missing_album and final_buffers.folders_missing_album:
-            prompt_fix_metadata(
-                missing_folders=list(final_buffers.folders_missing_album),
-                metadata_type='album',
-                current_working_dir=current_working_dir,
-                scanned_dir_basename=scanned_dir_basename,
-                exceptions=exceptions,
-                media_extensions=media_extensions)
-
-        if options.fix_missing_artist and final_buffers.folders_missing_artist:
-            prompt_fix_metadata(
-                missing_folders=list(final_buffers.folders_missing_artist),
-                metadata_type='artist',
-                current_working_dir=current_working_dir,
-                scanned_dir_basename=scanned_dir_basename,
-                exceptions=exceptions,
-                media_extensions=media_extensions)
 
     # Print album statistics and final summary
     print("\n" + "=" * 80)
@@ -1198,6 +1099,52 @@ def process_directory(directory, options: ProcessingOptions):
     print(f"Total size of supported audio files: {total_size_gb:.2f} GB / {total_size_gib:.2f} GiB")
     print_album_statistics(final_buffers.album_tree, options.list_redundant_album)
 
+    if options.list_all_albums:
+        log_all_albums(final_buffers.album_tree, scanned_dir_basename)
+    if options.normalize_capitalization_flag: # Log normalized metadata updates
+        log_normalized_metadata(final_buffers.normalized_updates)
+    if options.list_unknown_artist: # Log missing metadata
+        log_missing_metadata(final_buffers.missing_artist, "unknown_artist")
+    if options.list_unknown_album_artist:
+        log_missing_metadata(final_buffers.missing_album_artist, "unknown_album_artist")
+    if options.list_unknown_album:
+        log_missing_metadata(final_buffers.missing_album, "unknown_album")
+    if options.list_redundant_album:
+        log_redundant_albums(final_buffers.album_tree)
+    if options.list_redundant_tracks: # Log redundant tracks
+        # Build CRC map
+        crc_map, crc_collision_count = build_crc_map(final_buffers.all_tracks)
+        redundant_tracks, duplicates_count = find_redundant_tracks(crc_map)
+        log_redundant_tracks(redundant_tracks)
+        print(f"Total redundant track pairs found: {duplicates_count}")
+        print(f"Total CRC collisions detected: {crc_collision_count}")
+
+    # Handle interactive metadata fixing
+    if options.fix_missing_album_artist or options.fix_missing_album or options.fix_missing_artist:
+        exceptions = {"a", "an", "and", "as", "at", "but", "by",
+                      "for", "in", "nor", "of", "on", "or", "the", "up"}
+
+        if options.fix_missing_album_artist and final_buffers.folders_missing_album_artist:
+            prompt_fix_metadata(
+                missing_folders=list(final_buffers.folders_missing_album_artist),
+                metadata_type='album_artist',
+                exceptions=exceptions,
+                media_extensions=media_extensions)
+
+        if options.fix_missing_album and final_buffers.folders_missing_album:
+            prompt_fix_metadata(
+                missing_folders=list(final_buffers.folders_missing_album),
+                metadata_type='album',
+                exceptions=exceptions,
+                media_extensions=media_extensions)
+
+        if options.fix_missing_artist and final_buffers.folders_missing_artist:
+            prompt_fix_metadata(
+                missing_folders=list(final_buffers.folders_missing_artist),
+                metadata_type='artist',
+                exceptions=exceptions,
+                media_extensions=media_extensions)
+
 class Tee:
     def __init__(self, filename, mode="w"):
         self.file = open(filename, mode)
@@ -1229,7 +1176,6 @@ def main():
         )
     )
     parser.add_argument("directory", help="Directory to scan")
-
     parser.add_argument("--verbose", action="store_true",
                         help="Print each file as it is being processed (slow)")
     parser.add_argument("--log-output", type=str,
@@ -1241,22 +1187,26 @@ def main():
     parser.add_argument("--list-unknown-album", action="store_true",
                         help="List files with missing album metadata")
     parser.add_argument("--normalize-metadata-capitalization", action="store_true",
-                        help="Normalize metadata capitalization to Title Case with exceptions")
+                        help="Normalize metadata capitalization to title case.\n "
+                             "Is aware of exception words and Roman Numerals.\n"
+                             "Leaves tags alone if they are all-caps.\n"
+                             "(ex. your gold teeth II -> Your Gold Teeth II)\n"
+                             "(ex. simon and garfunkel -> Simon and Garfunkel)\n"
+                             "(ex. MFDOOM -> MFDOOM)")
     parser.add_argument("--list-redundant-tracks", action="store_true",
-                        help="List all duplicate tracks in the directory")
+                        help="List all duplicate tracks in the directory. (Based on contents of files)")
+    parser.add_argument("--list-redundant-albums", action="store_true",
+                        help="Finds and lists potential redundant albums. (Based on file paths)")
+    parser.add_argument("--list-all-albums", action="store_true",
+                        help="Lists all albums in directory based on metadata tags.")
+    parser.add_argument("--remove-desktop-ini-files", action="store_true",
+                        help="Remove all 'desktop.ini' files and report the count")
     parser.add_argument("--fix-missing-album-artist-by-folder", action="store_true",
                         help="Interactively fix missing album artist metadata by folder")
     parser.add_argument("--fix-missing-album-by-folder", action="store_true",
                         help="Interactively fix missing album metadata by folder")
     parser.add_argument("--fix-missing-artist-by-folder", action="store_true",
                         help="Interactively fix missing artist metadata by folder")
-    parser.add_argument("--list-redundant-album", action="store_true",
-                        help="List all redundant albums and save to a text file")
-    parser.add_argument("--list-all-albums", action="store_true",
-                        help="List all albums and save to a text file")
-    parser.add_argument("--remove-desktop-ini-files", action="store_true",
-                        help="Remove all 'desktop.ini' files and report the count")
-
     args = parser.parse_args()
 
     # Validate the directory
@@ -1283,7 +1233,7 @@ def main():
         fix_missing_album_artist=args.fix_missing_album_artist_by_folder,
         fix_missing_album=args.fix_missing_album_by_folder,
         fix_missing_artist=args.fix_missing_artist_by_folder,
-        list_redundant_album=args.list_redundant_album,
+        list_redundant_album=args.list_redundant_albums,
         list_all_albums=args.list_all_albums,
         remove_desktop_ini_files=args.remove_desktop_ini_files
     )
