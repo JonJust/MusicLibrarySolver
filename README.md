@@ -4,6 +4,8 @@ This Script is designed as companion software for people with large music collec
 
 It also prints out statistics based on the entire music library. (Total files, total audio files, corrupt files, total albums, total duration of all tracks, etc.)
 
+It is recommended to use this script in conjunction with a Music Player such as Strawberry.
+
 # KEY FEATURES AND USAGE
 
     music_stats.py directory [-h] [--verbose] [--log-output LOG_OUTPUT] [--list-unknown-artist] [--list-unknown-album-artist] [--list-unknown-album] [--normalize-metadata-capitalization] [--list-redundant-tracks] [--list-redundant-albums] [--list-all-albums] [--remove-desktop-ini-files] [--fix-missing-album-artist-by-folder] [--fix-missing-album-by-folder] [--fix-missing-artist-by-folder] [--num-threads NUM_THREADS]
