@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
+from operator import truediv
+
 import ffmpeg
 from mutagen import File
 import re
@@ -288,6 +290,24 @@ def get_unique_log_filename(current_working_dir, log_type, date_stamp, scanned_d
         counter += 1
     return filepath
 
+def print_section_header(title, width=80):
+    """
+    Print a formatted section header with '=' signs for consistent logging.
+
+    :param title: The title to be displayed in the section header.
+    :param width: Total width of the section header (default: 80 characters).
+    """
+    title = f" {title} "  # Add spaces for readability
+    padding = (width - len(title)) // 2  # Calculate padding on each side
+    header = "=" * padding + title + "=" * padding
+
+    # If width is odd, adjust by adding one more '=' at the end
+    if len(header) < width:
+        header += "="
+
+    print(header)
+
+
 def log_missing_metadata(file_list, log_type):
     """
     Log files with missing metadata to a uniquely named text file.
@@ -296,7 +316,7 @@ def log_missing_metadata(file_list, log_type):
     :param log_type: Type of missing metadata (e.g., "unknown_artist").
     """
 
-    print(f"====================== FILES MISSING METADATA ({log_type}) =============================")
+    print_section_header(f"FILES MISSING METADATA: {log_type}")
     if file_list:
         for file_path in file_list:
             print(f"{file_path}")
@@ -310,7 +330,7 @@ def log_normalized_metadata(normalized_updates):
     :param normalized_updates: List of normalization updates.
     """
 
-    print(f"====================== NORMALIZED METADATA =============================")
+    print_section_header("NORMALIZED METADATA")
     if normalized_updates:
         for update in normalized_updates:
             file_path = update['file_path']
@@ -327,12 +347,14 @@ def log_redundant_tracks(redundant_tracks):
 
     :param redundant_tracks: List of tuples containing duplicate Track pairs.
     """
+
+    print_section_header("REDUNDANT TRACKS")
     if not redundant_tracks:
         print("No redundant tracks found.")
         return
 
-    print(f"====================== REDUNDANT TRACKS =============================")
-
+    print("Note: Tracks listed here are found to have matching contents and metadata")
+    print("-" * 80)
     for track1, track2 in redundant_tracks:
         print(f"Duplicate Pair:")
         print(f"1. {track1.file_path}")
@@ -356,11 +378,24 @@ def log_redundant_albums(album_tree):
     :param album_tree: Dictionary representing the album tree.
     """
 
-    print(f"============== POSSIBLE REDUNDANT ALBUMS =============================")
+    print_section_header("REDUNDANT/MISTAGGED ALBUMS")
 
+    # First, check if we even have any red. albums. If not, return and exit.
+    has_redundant_albums:bool = False
+    for album in album_tree.values():
+        if len(album.redundant) > 0:
+            has_redundant_albums = True
+            break
+
+    if not has_redundant_albums:
+        print("No redundant or mistagged albums detected")
+        return  # Exit function early
+
+    print("Note: Albums listed here are either redundant or missing disc tags")
     for album in album_tree.values():
 
         if len(album.redundant) > 0:
+            print("-" * 80)
             print(f"Album Name : {album.album_name}")
             print(f"Artist     : {album.artist}")
             print(f"Path       : {album.path}")
@@ -371,8 +406,8 @@ def log_redundant_albums(album_tree):
                 print(f"Artist     : {redundant_album.artist}")
                 print(f"Path       : {redundant_album.path}")
                 print(f"Track Count: {redundant_album.track_count}")
+    print("-" * 80)
 
-            print("=" * 80)
 
 # Used for printing relative path of file
 def eliminate_common_prefix(rootpath: str, filepath: str) -> str:
@@ -455,7 +490,7 @@ def log_all_albums(album_tree, root_path):
         'artist': 25,
         'album': 40,
         'track_count': 11,
-        'disc_number': 8,
+        'disc_number': 9,
         'path': 95
     }
 
@@ -903,6 +938,7 @@ class ProcessingOptions:
     fix_missing_album: bool = False
     fix_missing_artist: bool = False
     remove_desktop_ini_files: bool = False
+    threads:int = 0 # 0 indicates 2 * cores
 
 import os
 import sys
@@ -1062,7 +1098,22 @@ def process_directory(directory, options: ProcessingOptions):
     """
     Process the specified directory with multithreading.
     """
-    thread_count = min(32, multiprocessing.cpu_count() * 2)
+
+    core_count = multiprocessing.cpu_count()
+    if options.threads != 0:
+        max_usable_threads = min(32, core_count * 2)
+        if options.threads > max_usable_threads:
+            print(f"Note: {core_count} cores detected. Using {max_usable_threads} threads.")
+            thread_count = max_usable_threads
+        elif options.threads < 0:
+            thread_count = max_usable_threads
+            print(f"Using {max_usable_threads} threads.")
+        else:
+            thread_count = options.threads
+            print(f"Using {options.threads} threads.")
+    else:
+        thread_count = min(32, core_count * 2)
+
     if options.verbose:
         print(f"Using {thread_count} Threads")
     start_time = time.perf_counter()
@@ -1140,7 +1191,7 @@ def process_directory(directory, options: ProcessingOptions):
     scanned_dir_basename = os.path.basename(os.path.normpath(directory))
 
     # Print album statistics and final summary
-    print("\n" + "=" * 80)
+    print_section_header("LIBRARY STATISTICS")
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
     formatted_time = format_elapsed_time(elapsed_time)
@@ -1190,8 +1241,10 @@ def process_directory(directory, options: ProcessingOptions):
         crc_map, crc_collision_count = build_crc_map(final_buffers.all_tracks)
         redundant_tracks, duplicates_count = find_redundant_tracks(crc_map)
         log_redundant_tracks(redundant_tracks)
-        print(f"Total redundant track pairs found: {duplicates_count}")
-        print(f"Total CRC collisions detected: {crc_collision_count}")
+        if duplicates_count > 0:
+            print(f"Total redundant track pairs found: {duplicates_count}")
+        if crc_collision_count > 0:
+            print(f"Total CRC collisions detected: {crc_collision_count}")
 
     # Handle interactive metadata fixing
     if options.fix_missing_album_artist or options.fix_missing_album or options.fix_missing_artist:
@@ -1281,6 +1334,8 @@ def main():
                         help="Interactively fix missing album metadata by folder")
     parser.add_argument("--fix-missing-artist-by-folder", action="store_true",
                         help="Interactively fix missing artist metadata by folder")
+    parser.add_argument("--num-threads", type=int,
+                        help="Specify number of thread to run script on. Defaults to max. (Min: 1, Max: Cores * 2)")
     args = parser.parse_args()
 
     # Validate the directory
@@ -1297,6 +1352,12 @@ def main():
             print(f"Error: '{args.log_output}' is not a valid Linux filename.", file=sys.stderr)
             sys.exit(1)
 
+    # Parse thread count
+    if args.num_threads is None:
+        thread_count = 0
+    else:
+        thread_count = args.num_threads
+
     options=ProcessingOptions(
         verbose=args.verbose,
         list_unknown_artist=args.list_unknown_artist,
@@ -1309,7 +1370,8 @@ def main():
         fix_missing_artist=args.fix_missing_artist_by_folder,
         list_redundant_album=args.list_redundant_albums,
         list_all_albums=args.list_all_albums,
-        remove_desktop_ini_files=args.remove_desktop_ini_files
+        remove_desktop_ini_files=args.remove_desktop_ini_files,
+        threads=thread_count
     )
 
     process_directory(
@@ -1323,7 +1385,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# ToDo:
-# Create functionality to delete target extension files
-# Prompr user on disc for redundant albums in folders??
