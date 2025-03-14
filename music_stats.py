@@ -515,7 +515,7 @@ def log_all_albums(album_tree, root_path):
         # Parse album name from concatenated string [Epicloud (Disc 1) -> Epicloud]
         cleaned, disc_num_str = extract_disc_info(album['album'])
         album_name = truncate_string(cleaned, COLUMN_WIDTHS['album'])
-        path = truncate_string(eliminate_common_prefix(root_path, album['path'])[1:], COLUMN_WIDTHS['path'])  # Optional: Truncate path if needed
+        path = truncate_string(eliminate_common_prefix(root_path, album['path']), COLUMN_WIDTHS['path'])
 
         # Format each line with fixed-width columns
         line = (
@@ -524,7 +524,7 @@ def log_all_albums(album_tree, root_path):
             f"{artist.ljust(COLUMN_WIDTHS['artist'])} | "
             f"{'Tracks: ' + str(album['track_count']).ljust(COLUMN_WIDTHS['track_count'] - 8)} | "
             f"{'Disc: ' + disc_num_str.ljust(COLUMN_WIDTHS['disc_number'] - 8)} | "
-            f"{path.ljust(COLUMN_WIDTHS['path'])}"
+            f"{path.ljust(COLUMN_WIDTHS['path'])[len(root_path):]}"
         )
         print(line)
 
@@ -1198,20 +1198,53 @@ def process_directory(directory, options: ProcessingOptions):
     print(f"{final_buffers.total_files} Files parsed in: {formatted_time} (h:m:s)")
 
     # Print count of audio files
+    # Really, there should only be one buffer of total files, and they should all be parsed at the end.
+    # This segment could be improved on.
     if final_buffers.total_music_files > 0:
         print("\nTotal Audio File Count:")
         for ext, count in final_buffers.supported_extensions.items():
             print(f"{ext}: {count}")
 
-    # Print count of non audio files
-    if final_buffers.various_file_count > 0:
-        print("\nTotal Non-Audio File Count:")
-        for ext, count in final_buffers.unsupported_extensions.items():
-            print(f"{ext}: {count}")
+    # Define file categories
+    IMAGE_EXTENSIONS = {
+        "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "ico", "", "thm", "webp", "svg", "raw", "heif", "heic"
+    }
+
+    VIDEO_EXTENSIONS = {
+        "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "ogv", "3gp", "3g2", "rm", "rmvb"
+    }
+
+    # Categorize files
+    image_files = {}
+    video_files = {}
+    various_files = {}
+
+    for ext, count in final_buffers.unsupported_extensions.items():
+        if ext in IMAGE_EXTENSIONS:
+            image_files[ext] = count
+        elif ext in VIDEO_EXTENSIONS:
+            video_files[ext] = count
+        else:
+            various_files[ext] = count
+
+    # Function to print sorted category count
+    def print_sorted_category(title, file_dict):
+        if file_dict:
+            print(f"\n{title}:")
+            for ext, count in sorted(file_dict.items(), key=lambda x: x[1], reverse=True):
+                print(f"{ext}: {count}")
+
+    # Print categorized file counts
+    if len(image_files) > 0:
+        print_sorted_category("Total Image File Count", image_files)
+    if len(video_files) > 0:
+        print_sorted_category("Total Video File Count", video_files)
+    if len(various_files) > 0:
+        print_sorted_category("Total Various File Count", various_files)
 
     # Print corrupt files
     if final_buffers.corrupt_file_count > 0:
-        print(f"\nCorrupt files:{final_buffers.corrupt_file_count}")
+        print(f"\nCorrupt files: {final_buffers.corrupt_file_count}")
         for corrupt_file in final_buffers.corrupt_files:
             print(f"    -{corrupt_file}")
 
