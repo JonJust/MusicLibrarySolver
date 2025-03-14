@@ -102,8 +102,14 @@ positional arguments:
     m4a: 5
     flac: 1
     
-    Total Non-Audio File Count:
+    Total Image File Count:
     jpeg: 10
+
+    Total Video File Count:
+    mpeg: 3
+
+    Total Various File Count:
+    txt: 2
     
     Corrupt files:1
         -Music/EpicAnimeMusic/OnePieceRap_4kids.flac
