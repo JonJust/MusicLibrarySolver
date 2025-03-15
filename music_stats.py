@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-from operator import truediv
-
-import ffmpeg
 from mutagen import File
 import re
 from dataclasses import dataclass, field
@@ -42,17 +39,18 @@ def compute_crc32(file_path):
 
 def get_duration(file_path):
     """
-    Get the duration of a media file in seconds.
+    Get the duration of an audio file in seconds.
 
-    :param file_path: Path to the media file.
+    :param file_path: Path to the audio file.
     :return: Duration in seconds, or None if retrieval fails.
     """
     try:
-        probe = ffmpeg.probe(file_path)
-        duration = float(probe['format']['duration'])
-        return duration
-    except (ffmpeg.Error, KeyError, ValueError):
-        return None  # Return None if we can't get a valid duration
+        audio = File(file_path)
+        if audio and audio.info:
+            return audio.info.length  # Duration in seconds
+    except Exception as e:
+        print(f"Error retrieving duration for {file_path}: {e}")
+    return None  # Return None if extraction fails
 
 def get_file_size(file_path):
     """
@@ -938,6 +936,7 @@ class ProcessingOptions:
     fix_missing_album: bool = False
     fix_missing_artist: bool = False
     remove_desktop_ini_files: bool = False
+    count_total_duration: bool = False
     threads:int = 0 # 0 indicates 2 * cores
 
 import os
@@ -1005,8 +1004,6 @@ def process_file_multithreaded(file_path, options:ProcessingOptions, media_exten
         buffers.supported_extensions[ext] += 1
 
         # Initialize track data
-
-        # Initialize track data
         metadata = get_metadata(file_path)
 
         if metadata.corrupt:  # Don't try to faff with corrupt files
@@ -1014,17 +1011,25 @@ def process_file_multithreaded(file_path, options:ProcessingOptions, media_exten
             buffers.corrupt_files.append(file_path)
             return
 
-        duration = get_duration(file_path) or 0
+        # Extremely slow to get duration of all files, so only tally if user specifies
+        if options.count_total_duration:
+            duration = get_duration(file_path)
+
+            if duration is None: # If we can't get the duration of a file, it is potentially corrupted
+                buffers.corrupt_file_count += 1
+                buffers.corrupt_files.append(file_path)
+                return
+            else:
+                buffers.total_duration += duration
+
         file_size = get_file_size(file_path) or 0
-        crc = compute_crc32(file_path)
+
+        # Computing CRC is slow, so only compute if told
+        crc=0
+        if options.list_redundant_tracks:
+            crc = compute_crc32(file_path)
 
         buffers.total_media_files += 1
-        if duration is not None:
-            buffers.total_duration += duration
-        else:
-            if options.verbose:
-                print(f"Warning: Could not retrieve duration for {file_path}")
-
         buffers.total_size += file_size
 
         folder_path = os.path.dirname(file_path)
@@ -1253,8 +1258,9 @@ def process_directory(directory, options: ProcessingOptions):
     total_duration_hms = f"{int(final_buffers.total_duration // 3600)}:{int((final_buffers.total_duration % 3600) // 60)}:{int(final_buffers.total_duration % 60)}"
     print(f"\nTotal number of files: {final_buffers.total_files}")
     print(f"Total number of music files: {final_buffers.total_music_files}")
-    print(f"Total duration of supported audio files: {total_duration_hms}")
     print(f"Total size of supported audio files: {total_size_gb:.2f} GB / {total_size_gib:.2f} GiB")
+    if options.count_total_duration:
+        print(f"Total duration of supported audio files: {total_duration_hms}")
     print_album_statistics(final_buffers.album_tree, options.list_redundant_album)
 
     if options.list_all_albums:
@@ -1354,7 +1360,7 @@ def main():
                              "(ex. simon and garfunkel -> Simon and Garfunkel)\n"
                              "(ex. MFDOOM -> MFDOOM)")
     parser.add_argument("--list-redundant-tracks", action="store_true",
-                        help="List all duplicate tracks in the directory. (Based on contents of files)")
+                        help="List all duplicate tracks in the directory, based on contents of files. (slow)")
     parser.add_argument("--list-redundant-albums", action="store_true",
                         help="Finds and lists potential redundant albums and albums spanning multiple "
                              "files missing disc tags. (Based on file paths)")
@@ -1368,6 +1374,8 @@ def main():
                         help="Interactively fix missing album metadata by folder")
     parser.add_argument("--fix-missing-artist-by-folder", action="store_true",
                         help="Interactively fix missing artist metadata by folder")
+    parser.add_argument("--count-total-duration", action="store_true",
+                        help="Tallies up the duration of all audio files, and sums them. (slow)")
     parser.add_argument("--num-threads", type=int,
                         help="Specify number of thread to run script on. Defaults to max. (Min: 1, Max: Cores * 2)")
     args = parser.parse_args()
@@ -1405,6 +1413,7 @@ def main():
         list_redundant_album=args.list_redundant_albums,
         list_all_albums=args.list_all_albums,
         remove_desktop_ini_files=args.remove_desktop_ini_files,
+        count_total_duration=args.count_total_duration,
         threads=thread_count
     )
 
@@ -1419,3 +1428,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+Todo:
+Implement Cue splitting
+Upgrade ini removal to all windows-related bloat. (thumbs.db, folder.jpg, etc.)
+Performance upgrades
+"""
