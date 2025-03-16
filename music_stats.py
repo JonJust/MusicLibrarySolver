@@ -935,7 +935,7 @@ class ProcessingOptions:
     fix_missing_album_artist: bool = False
     fix_missing_album: bool = False
     fix_missing_artist: bool = False
-    remove_desktop_ini_files: bool = False
+    remove_windows_hidden_files: bool = False
     count_total_duration: bool = False
     threads:int = 0 # 0 indicates 2 * cores
 
@@ -950,13 +950,19 @@ from collections import defaultdict
 
 @dataclass
 class ProcessingBuffers:
-    total_files: int = 0
-    total_music_files: int = 0
-    total_media_files: int = 0
-    total_duration: float = 0.0
-    total_size: int = 0
+    total_files: int = 0 # Total file count
+    total_music_files: int = 0 # Music File count
+    total_media_files: int = 0 # Video file count
+    various_file_count: int = 0 # Non-Media file count
+    total_size: int = 0 # Total size of audio files
+    total_duration: float = 0.0 # Total duration of audio files
+
+    # Counters for windows bloat removed
     desktop_ini_removed: int = 0
-    various_file_count: int = 0
+    thumbs_db_removed: int = 0
+    folder_jpg_removed: int = 0
+    album_art_small_removed: int = 0
+
     supported_extensions: dict = field(default_factory=lambda: defaultdict(int))
     unsupported_extensions: dict = field(default_factory=lambda: defaultdict(int))
     missing_artist: list = field(default_factory=list)
@@ -986,15 +992,46 @@ def process_file_multithreaded(file_path, options:ProcessingOptions, media_exten
 
     buffers.total_files += 1
 
-    if options.remove_desktop_ini_files and file_name.lower() == 'desktop.ini':
-        try:
-            if options.verbose:
-                print(f"Removed: {file_path}")
-            os.remove(file_path)
-            buffers.desktop_ini_removed += 1
-        except Exception as e:
-            print(f"Error removing {file_path}: {e}", file=sys.stderr)
-        return
+    if options.remove_windows_hidden_files:
+        if file_name.lower() == 'desktop.ini':
+            try:
+                if options.verbose:
+                    print(f"Removed: {file_path}")
+                os.remove(file_path)
+                buffers.desktop_ini_removed += 1
+            except Exception as e:
+                print(f"Error removing {file_path}: {e}", file=sys.stderr)
+            return
+
+        if file_name == 'Thumbs.db':
+            try:
+                if options.verbose:
+                    print(f"Removed: {file_path}")
+                os.remove(file_path)
+                buffers.thumbs_db_removed += 1
+            except Exception as e:
+                print(f"Error removing {file_path}: {e}", file=sys.stderr)
+            return
+
+        if file_name == 'AlbumArtSmall.jpg':
+            try:
+                if options.verbose:
+                    print(f"Removed: {file_path}")
+                os.remove(file_path)
+                buffers.album_art_small_removed += 1
+            except Exception as e:
+                print(f"Error removing {file_path}: {e}", file=sys.stderr)
+            return
+
+        if file_name == 'Folder.jpg':
+            try:
+                if options.verbose:
+                    print(f"Removed: {file_path}")
+                os.remove(file_path)
+                buffers.folder_jpg_removed += 1
+            except Exception as e:
+                print(f"Error removing {file_path}: {e}", file=sys.stderr)
+            return
 
     if ext in media_extensions:
         # new music file if the extension is valid
@@ -1171,6 +1208,9 @@ def process_directory(directory, options: ProcessingOptions):
         final_buffers.total_duration += buffer.total_duration
         final_buffers.total_size += buffer.total_size
         final_buffers.desktop_ini_removed += buffer.desktop_ini_removed
+        final_buffers.thumbs_db_removed += buffer.thumbs_db_removed
+        final_buffers.album_art_small_removed += buffer.album_art_small_removed
+        final_buffers.folder_jpg_removed += buffer.folder_jpg_removed
         final_buffers.various_file_count += buffer.various_file_count
         final_buffers.corrupt_file_count += buffer.corrupt_file_count
 
@@ -1252,6 +1292,29 @@ def process_directory(directory, options: ProcessingOptions):
         print(f"\nCorrupt files: {final_buffers.corrupt_file_count}")
         for corrupt_file in final_buffers.corrupt_files:
             print(f"    -{corrupt_file}")
+
+    if options.remove_windows_hidden_files:
+        print("")
+
+        total_bloat_removed  = final_buffers.desktop_ini_removed
+        total_bloat_removed += final_buffers.album_art_small_removed
+        total_bloat_removed += final_buffers.folder_jpg_removed
+        total_bloat_removed += final_buffers.thumbs_db_removed
+
+        if total_bloat_removed > 0:
+            if final_buffers.desktop_ini_removed > 0:
+                print(f"Desktop.ini files removed: {final_buffers.desktop_ini_removed}")
+
+            if final_buffers.album_art_small_removed > 0:
+                print(f"AlbumArtSmall.jpg files removed: {final_buffers.album_art_small_removed}")
+
+            if final_buffers.folder_jpg_removed > 0:
+                print(f"Folder.jpg files removed: {final_buffers.folder_jpg_removed}")
+
+            if final_buffers.thumbs_db_removed > 0:
+                print(f"Thumbs.db files removed: {final_buffers.thumbs_db_removed}")
+        else:
+            print("No Windows generated hidden files found")
 
     total_size_gb = final_buffers.total_size / (1000 ** 3)  # Decimal GB
     total_size_gib = final_buffers.total_size / (1024 ** 3)  # Binary GiB
@@ -1366,8 +1429,11 @@ def main():
                              "files missing disc tags. (Based on file paths)")
     parser.add_argument("--list-all-albums", action="store_true",
                         help="Lists all albums in directory based on metadata tags.")
-    parser.add_argument("--remove-desktop-ini-files", action="store_true",
-                        help="Remove all 'desktop.ini' files and report the count")
+    parser.add_argument("--remove-windows-hidden-files", action="store_true",
+                        help="Removes files automatically generated by Windows. "
+                             "(Desktop.ini, Thumbs.db, AlbumArtSmall.jpg, Folder.jpg)"
+                             "This is safe to run for Mac and Linux users. It won't break anything"
+                             "on Windows, but the OS will automatically regenerate these files.")
     parser.add_argument("--fix-missing-album-artist-by-folder", action="store_true",
                         help="Interactively fix missing album artist metadata by folder")
     parser.add_argument("--fix-missing-album-by-folder", action="store_true",
@@ -1412,7 +1478,7 @@ def main():
         fix_missing_artist=args.fix_missing_artist_by_folder,
         list_redundant_album=args.list_redundant_albums,
         list_all_albums=args.list_all_albums,
-        remove_desktop_ini_files=args.remove_desktop_ini_files,
+        remove_windows_hidden_files=args.remove_windows_hidden_files,
         count_total_duration=args.count_total_duration,
         threads=thread_count
     )
@@ -1432,6 +1498,6 @@ if __name__ == "__main__":
 """
 Todo:
 Implement Cue splitting
-Upgrade ini removal to all windows-related bloat. (thumbs.db, folder.jpg, etc.)
-Performance upgrades
+Performance upgrades:
+    - Only use a single thread if parsing without other processing options
 """
