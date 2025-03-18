@@ -412,11 +412,23 @@ def log_redundant_albums(album_tree):
                 print(f"Track Count: {redundant_album.track_count}")
     print("-" * 80)
 
+def eliminate_common_prefix(root_path, full_path):
+    """
+    Removes the root directory prefix from the full file path.
 
-# Used for printing relative path of file
-def eliminate_common_prefix(rootpath: str, filepath: str) -> str:
-    root_len = len(rootpath)
-    return "/" + filepath[root_len:] + "/"
+    :param root_path: The root path to remove.
+    :param full_path: The full absolute path.
+    :return: Relative path with root_path removed.
+    """
+    # Normalize paths to avoid issues with trailing slashes
+    root_path = os.path.normpath(root_path) + os.sep
+    full_path = os.path.normpath(full_path)
+
+    # Ensure we only strip the root path if full_path starts with it
+    if full_path.startswith(root_path):
+        return full_path[len(root_path):]  # Strip root path
+
+    return full_path  # If the path wasn't inside root_path, return as-is
 
 def truncate_string(s, max_length=25):
     """
@@ -528,7 +540,7 @@ def log_all_albums(album_tree, root_path):
             f"{artist.ljust(COLUMN_WIDTHS['artist'])} | "
             f"{'Tracks: ' + str(album['track_count']).ljust(COLUMN_WIDTHS['track_count'] - 8)} | "
             f"{'Disc: ' + disc_num_str.ljust(COLUMN_WIDTHS['disc_number'] - 8)} | "
-            f"{path.ljust(COLUMN_WIDTHS['path'])[len(root_path):]}"
+            f"{path.ljust(COLUMN_WIDTHS['path'])}"
         )
         print(line)
 
@@ -1230,7 +1242,6 @@ def process_directory(directory, options: ProcessingOptions):
         album_buffers.append(buffer.album_tree)
 
     final_buffers.album_tree = merge_album_trees(album_buffers)
-    scanned_dir_basename = os.path.basename(os.path.normpath(directory))
 
     # Print album statistics and final summary
     print_section_header("LIBRARY STATISTICS")
@@ -1323,7 +1334,7 @@ def process_directory(directory, options: ProcessingOptions):
     print_album_statistics(final_buffers.album_tree, options.list_redundant_album)
 
     if options.list_all_albums:
-        log_all_albums(final_buffers.album_tree, scanned_dir_basename)
+        log_all_albums(final_buffers.album_tree, directory)
     if options.normalize_capitalization_flag: # Log normalized metadata updates
         log_normalized_metadata(final_buffers.normalized_updates)
     if options.list_unknown_artist: # Log missing metadata
