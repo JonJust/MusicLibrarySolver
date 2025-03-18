@@ -1,0 +1,5 @@
+*.txt
+*.png
+dist/*
+buid/*
+music_stats.egg-info
